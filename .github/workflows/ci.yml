@@ -25,14 +25,14 @@ jobs:
       - name: Auto-fix with Ruff
         run: ruff check . --fix
 
-      - name: Check formatting with Black
-        run: black --check .
+      - name: Auto-format with Black
+        run: black .
 
-      - name: Run tests (with proper import path)
+      - name: Check that everything is clean
+        run: |
+          ruff check .
+          black --check .
+
+      - name: Run tests
         run: |
           PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term
-
-      - name: Upload coverage (optional)
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
