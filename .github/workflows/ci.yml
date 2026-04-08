@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download Chinook DB (for tests & reproducibility)
+      - name: Download Chinook DB
         run: |
           curl -L -o chinook.db https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite
 
@@ -28,9 +28,10 @@ jobs:
           black --check .
 
       - name: Run tests
-        run: pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term
+        run: |
+          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}  # optional; add later
+          token: ${{ secrets.CODECOV_TOKEN }}  # optional
