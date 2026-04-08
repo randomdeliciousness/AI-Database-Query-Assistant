@@ -3,7 +3,6 @@ import sqlite3
 import pandas as pd
 import chromadb
 import datetime
-import json
 import time
 from typing import Dict, List, Tuple, Any
 from pydantic import BaseModel
@@ -11,14 +10,12 @@ from pydantic import BaseModel
 class SQLResponse(BaseModel):
     sql_query: str
 
-# New: Abstract layer for future data sources (Runlayer MCP, APIs, etc.)
 class DataAccessLayer:
     """Abstract base for swapping direct DB vs MCP-routed access."""
     async def execute(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
         raise NotImplementedError
 
 class DirectDBLayer(DataAccessLayer):
-    """Original direct SQLite implementation (default)."""
     def __init__(self, assistant):
         self.assistant = assistant
 
@@ -40,19 +37,16 @@ class EnhancedQueryAssistant:
     ]
 
     def __init__(self, db_path: str, openai_api_key: str, use_mcp: bool = False):
-        """Initialize with optional MCP layer (for Runlayer integration)."""
         self.db_path = db_path
         self.client = OpenAI(api_key=openai_api_key)
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
         
         try:
             self.collection = self.chroma_client.get_collection(name="query_history")
-        except:
+        except Exception:  # fixed: no bare except
             self.collection = self.chroma_client.create_collection(name="query_history")
         
         self.schema = self._get_db_schema()
-        
-        # MCP layer support (placeholder for future MCPToolLayer)
         self.data_layer: DataAccessLayer = DirectDBLayer(self) if not use_mcp else None
 
     def _execute_direct(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
@@ -71,11 +65,9 @@ class EnhancedQueryAssistant:
             "latency_ms": latency_ms
         }
         self._store_query(natural_query, sql_query, metadata)
-        
         return result_df, similar_queries
 
     def _get_db_schema(self) -> str:
-        """Get the database schema with table and column information."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         schema_info = []
@@ -92,7 +84,6 @@ class EnhancedQueryAssistant:
         return "\n".join(schema_info)
 
     def _store_query(self, natural_query: str, sql_query: str, metadata: Dict[str, Any]):
-        """Store query in vector database with metadata."""
         timestamp = datetime.datetime.now().isoformat()
         self.collection.add(
             documents=[natural_query],
@@ -101,7 +92,6 @@ class EnhancedQueryAssistant:
         )
 
     def _find_similar_queries(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
-        """Find similar queries from history."""
         results = self.collection.query(query_texts=[query], n_results=n_results)
         if not results["documents"][0]:
             return []
@@ -116,7 +106,7 @@ class EnhancedQueryAssistant:
         ]
 
     def _generate_sql(self, natural_query: str) -> str:
-        """Generate SQL from natural language query using structured outputs (gpt-4o-mini)."""
+        """2026 upgrade: gpt-4o + structured output."""
         prompt = f"""Convert the following natural language query to SQL.
 Database Schema:
 {self.schema}
@@ -126,7 +116,7 @@ Natural language query: {natural_query}
 Respond with ONLY valid SQL. No explanations."""
 
         response = self.client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a SQL expert. Convert natural language to precise SQL."},
                 {"role": "user", "content": prompt}
@@ -136,7 +126,6 @@ Respond with ONLY valid SQL. No explanations."""
         return response.choices[0].message.parsed.sql_query.strip()
 
     def execute_query(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
-        """Public API – now layer-aware (default = direct)."""
         if self.data_layer is not None:
             import asyncio
             return asyncio.run(self.data_layer.execute(natural_query))
