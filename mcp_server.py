@@ -94,5 +94,7 @@ async def health():
 if __name__ == "__main__":
     print("🚀 Starting MCP Server (Runlayer-ready)")
     print("→ Local: http://localhost:8000/mcp")
-    print("→ Runlayer: Add this URL to your Private Catalog → instant enterprise security")
+    print(
+        "→ Runlayer: Add this URL to your Private Catalog → instant enterprise security"
+    )
     uvicorn.run(app, host="0.0.0.0", port=8000)
