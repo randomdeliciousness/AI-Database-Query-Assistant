@@ -6,6 +6,20 @@ import datetime
 import json
 from typing import Dict, List, Tuple, Any
 
+# New: Abstract layer for future data sources (Runlayer MCP, APIs, etc.)
+class DataAccessLayer:
+    """Abstract base for swapping direct DB vs MCP-routed access."""
+    async def execute(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+        raise NotImplementedError
+
+class DirectDBLayer(DataAccessLayer):
+    """Original direct SQLite implementation (default)."""
+    def __init__(self, assistant):
+        self.assistant = assistant
+
+    async def execute(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+        return self.assistant._execute_direct(natural_query)  # internal helper below
+
 class EnhancedQueryAssistant:
     # Class-level sample queries
     SAMPLE_QUERIES = [
@@ -21,20 +35,36 @@ class EnhancedQueryAssistant:
         "Show the most common media types by sales volume"
     ]
 
-    def __init__(self, db_path: str, openai_api_key: str):
-        """Initialize the Enhanced Query Assistant."""
+def __init__(self, db_path: str, openai_api_key: str, use_mcp: bool = False):
+        """Initialize with optional MCP layer (for Runlayer integration)."""
         self.db_path = db_path
         self.client = OpenAI(api_key=openai_api_key)
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
         
-        # Initialize or get the collection
         try:
             self.collection = self.chroma_client.get_collection(name="query_history")
         except:
             self.collection = self.chroma_client.create_collection(name="query_history")
         
-        # Cache the database schema
         self.schema = self._get_db_schema()
+        
+        # New MCP layer support
+        self.data_layer: DataAccessLayer = DirectDBLayer(self) if not use_mcp else None
+        # (MCPToolLayer would be injected here in future extensions)
+
+    # Internal helper so layers can call original logic
+    def _execute_direct(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+        similar_queries = self._find_similar_queries(natural_query)
+        sql_query = self._generate_sql(natural_query)
+        
+        conn = sqlite3.connect(self.db_path)
+        result_df = pd.read_sql_query(sql_query, conn)
+        conn.close()
+        
+        metadata = {"row_count": len(result_df), "execution_time": datetime.datetime.now().isoformat()}
+        self._store_query(natural_query, sql_query, metadata)
+        
+        return result_df, similar_queries
     
     def _get_db_schema(self) -> str:
         """Get the database schema with table and column information."""
@@ -109,26 +139,13 @@ class EnhancedQueryAssistant:
         
         return response.choices[0].message.content.strip()
     
-    def execute_query(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
-        """Execute natural language query and return results with similar historical queries."""
-        # Find similar queries first
-        similar_queries = self._find_similar_queries(natural_query)
-        
-        # Generate and execute SQL query
-        sql_query = self._generate_sql(natural_query)
-        
-        conn = sqlite3.connect(self.db_path)
-        result_df = pd.read_sql_query(sql_query, conn)
-        conn.close()
-        
-        # Store the query and its results
-        metadata = {
-            "row_count": len(result_df),
-            "execution_time": datetime.datetime.now().isoformat()
-        }
-        self._store_query(natural_query, sql_query, metadata)
-        
-        return result_df, similar_queries
+def execute_query(self, natural_query: str) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+        """Public API – now layer-aware (default = direct)."""
+        if hasattr(self.data_layer, 'execute') and self.data_layer is not None:
+            # Async wrapper for layer compatibility
+            import asyncio
+            return asyncio.run(self.data_layer.execute(natural_query))
+        return self._execute_direct(natural_query)
 
 # Example usage for testing
 if __name__ == "__main__":
