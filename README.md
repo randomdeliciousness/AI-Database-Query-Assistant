@@ -9,7 +9,9 @@
 
 **Production-grade natural language → SQL system with vector RAG, visualizations, and enterprise MCP security layer.**
 
-**Live demo video:** (embedded in repo)
+[**Live demo video:** 
+](https://github.com/user-attachments/assets/bca6fb38-120b-4673-a3a0-d50051027b97
+)
 
 - **Custom MCP Server** built from scratch → routed through Runlayer control plane (permissions, threat detection, audit logs, zero-trust)
 - **End-to-end tool creation** (LLM + vector DB + secure API + Docker + CI/CD)
