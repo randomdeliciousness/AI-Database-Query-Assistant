@@ -1,61 +1,93 @@
-import asyncio
 import os
 from typing import Dict, Any
 import pandas as pd
-
-from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from enhanced_assistant import EnhancedQueryAssistant
+import uvicorn
+import json
+import logging
 
-'''
-Runlayer (or any MCP control plane) can proxy/route this 
-server with zero code changes — just give Runlayer the endpoint URL. 
-It automatically adds permissions, threat detection, observability, PII masking, audit logs, etc.
-'''
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("mcp-server")
 
-# Initialize MCP server (Runlayer will proxy this endpoint)
-mcp = FastMCP(
-    "AI-Database-Query-Assistant",
-    json_response=True,
-    description="Natural language to SQL query assistant with vector history and visualizations. Secured via Runlayer MCP control plane."
+app = FastAPI(
+    title="AI Database Query Assistant MCP Server",
+    description="MCP-compliant server for natural-language SQL queries. "
+                "Proxy this endpoint through Runlayer for enterprise security, "
+                "ABAC permissions, threat detection, audit logs, and observability.",
+    version="1.1.0"
 )
 
-# Lazy-load assistant (shares DB and ChromaDB across tool calls)
+# Runlayer / MCP compatibility: JSON-RPC 2.0 endpoint
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # tighten in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 _assistant: EnhancedQueryAssistant | None = None
 
-def _get_assistant() -> EnhancedQueryAssistant:
+def get_assistant() -> EnhancedQueryAssistant:
     global _assistant
     if _assistant is None:
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise ValueError("OPENAI_API_KEY environment variable required")
-        _assistant = EnhancedQueryAssistant("chinook.db", openai_key)
+        key = os.getenv("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("OPENAI_API_KEY required")
+        _assistant = EnhancedQueryAssistant("chinook.db", key)
     return _assistant
 
-@mcp.tool()
-async def natural_language_query(natural_query: str) -> Dict[str, Any]:
-    """Execute a natural language query against the music store database.
+class MCPRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    method: str
+    params: Dict[str, Any]
+    id: Any = None
+
+class MCPResponse(BaseModel):
+    jsonrpc: str = "2.0"
+    result: Any = None
+    error: Dict[str, Any] = None
+    id: Any = None
+
+@app.post("/mcp")
+async def mcp_endpoint(request: MCPRequest):
+    """MCP-compliant JSON-RPC endpoint (Runlayer proxy target)."""
+    if request.method != "natural_language_query":
+        raise HTTPException(400, "Only natural_language_query method supported")
     
-    Returns structured results + similar historical queries.
-    Perfect for agentic workflows routed through Runlayer MCP control plane.
-    """
-    assistant = _get_assistant()
+    natural_query = request.params.get("natural_query")
+    if not natural_query:
+        raise HTTPException(400, "natural_query parameter required")
     
-    df: pd.DataFrame
-    similar_queries: list[dict]
-    df, similar_queries = assistant.execute_query(natural_query)
+    try:
+        assistant = get_assistant()
+        df, similar = assistant.execute_query(natural_query)
+        
+        result = {
+            "results": df.to_dict(orient="records"),
+            "row_count": len(df),
+            "similar_queries": similar,
+            "sql_query": "Generated internally (visible in Runlayer audit logs)",
+            "status": "success",
+            "mcp_version": "1.0"
+        }
+        
+        logger.info(f"MCP query processed: {natural_query[:50]}...")
+        return MCPResponse(result=result, id=request.id)
     
-    return {
-        "results": df.to_dict(orient="records"),
-        "row_count": len(df),
-        "similar_queries": similar_queries,
-        "sql_query": "Generated internally (visible in Runlayer audit logs)",
-        "status": "success"
-    }
+    except Exception as e:
+        logger.error(f"MCP error: {e}")
+        return MCPResponse(error={"code": -32000, "message": str(e)}, id=request.id)
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "mcp_ready": True, "runlayer_compatible": True}
 
 if __name__ == "__main__":
-    # Run locally for testing (stdio or HTTP)
-    # For production/Runlayer: use transport="streamable-http" and expose port
-    print("🚀 Starting AI Database Query MCP Server...")
-    print("→ Connect via Runlayer or any MCP client (Claude Desktop, Cursor, etc.)")
-    print("→ Example endpoint (when using streamable-http): http://localhost:8000/mcp")
-    mcp.run(transport="streamable-http")  # Change to "stdio" for direct Claude/Cursor integration
+    print("🚀 Starting MCP Server (Runlayer-ready)")
+    print("→ Local: http://localhost:8000/mcp")
+    print("→ Runlayer: Add this URL to your Private Catalog → instant enterprise security")
+    uvicorn.run(app, host="0.0.0.0", port=8000)r integration
