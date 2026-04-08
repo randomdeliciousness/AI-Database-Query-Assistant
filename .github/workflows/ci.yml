@@ -1,13 +1,36 @@
-name: CI/CD
+name: CI/CD Pipeline
+
 on: [push, pull_request]
+
 jobs:
-  test:
+  test-and-lint:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r requirements.txt pytest
-      - run: pytest tests/ --verbose
+
+      - name: Download Chinook DB (for tests & reproducibility)
+        run: |
+          curl -L -o chinook.db https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt pytest pytest-asyncio ruff black
+
+      - name: Lint with Ruff & Black
+        run: |
+          ruff check .
+          black --check .
+
+      - name: Run tests
+        run: pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}  # optional; add later
