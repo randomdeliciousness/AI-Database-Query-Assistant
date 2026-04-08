@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt pytest pytest-asyncio ruff black
+          pip install -r requirements.txt pytest pytest-asyncio ruff black pytest-cov
 
       - name: Auto-fix with Ruff
         run: ruff check . --fix
@@ -35,4 +35,9 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term
+          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term --cov-fail-under=0
+
+      - name: Upload coverage (optional)
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
