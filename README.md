@@ -1,5 +1,13 @@
 # AI-Powered Database Query Assistant
 
+## 🚀 New: MCP Integration (Runlayer Ready)
+
+**Model Context Protocol (MCP) layer** added — your assistant is now a secure, agent-callable MCP server.
+
+### Quick Start – MCP Server
+```bash
+OPENAI_API_KEY=sk-... python mcp_server.py
+```
 A Natural Language to SQL query system that uses OpenAI's GPT-3.5, ChromaDB for vector similarity search, and Streamlit for the user interface. This project demonstrates the integration of Large Language Models (LLMs), vector databases, and text-to-SQL conversion in a practical application.
 
 https://github.com/user-attachments/assets/bca6fb38-120b-4673-a3a0-d50051027b97
