@@ -26,6 +26,12 @@ def create_visualization(df: pd.DataFrame) -> Optional[Union[px.bar, px.scatter]
     
     return None
 
+# MCP mode toggle (for demo)
+    use_mcp = st.sidebar.checkbox("Use MCP Layer (Runlayer mode)", value=False)
+    if 'assistant' not in st.session_state or st.session_state.get('use_mcp') != use_mcp:
+        st.session_state.assistant = EnhancedQueryAssistant("chinook.db", st.secrets["openai"]["api_key"], use_mcp=use_mcp)
+        st.session_state.use_mcp = use_mcp
+
 def main():
     st.title("AI-Powered Database Query Assistant")
     
