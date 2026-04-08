@@ -11,11 +11,9 @@
 
 **Live demo video:** (embedded in repo)
 
-## Why This Impresses Employers
 - **Custom MCP Server** built from scratch → routed through Runlayer control plane (permissions, threat detection, audit logs, zero-trust)
 - **End-to-end tool creation** (LLM + vector DB + secure API + Docker + CI/CD)
 - **Measurable impact**: <300 ms average latency, 100% SQL validity via structured outputs
-- Ties directly to resume: "Deployed MCP Server for in-house data processing/extraction with Runlayer"
 
 ## Quick Start
 ```bash
@@ -25,3 +23,5 @@ pip install -r requirements.txt
 # Download Chinook DB if missing: curl -L -o chinook.db https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite
 cp .streamlit/secrets.example.toml .streamlit/secrets.toml  # add your OpenAI key
 streamlit run streamlit_app.py
+
+✅ CI now fully passing with automatic Black + Ruff formatting!
