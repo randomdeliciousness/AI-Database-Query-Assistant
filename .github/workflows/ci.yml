@@ -8,6 +8,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for auto-commit
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -27,6 +29,12 @@ jobs:
 
       - name: Auto-format with Black
         run: black .
+
+      - name: Commit formatted files (if Black or Ruff changed anything)
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format with Black + Ruff"
+          branch: ${{ github.head_ref || github.ref_name }}
 
       - name: Check that everything is clean
         run: |
