@@ -1,6 +1,8 @@
 import datetime
 import logging
 import time
+import uuid
+from pathlib import Path
 from typing import Any
 
 import chromadb
@@ -8,9 +10,11 @@ import pandas as pd
 from openai import OpenAI
 from pydantic import BaseModel
 
+from audit_log import AuditConfig, AuditLogger, load_audit_config, schema_identifiers
 from config import ModelConfig, load_model_config
 from sql_guard import (
     GuardConfig,
+    GuardError,
     check_sql,
     load_guard_config,
     open_readonly_plain,
@@ -28,7 +32,7 @@ class DataAccessLayer:
     """Abstract data-access layer (only direct DB access exists)."""
 
     async def execute(
-        self, natural_query: str
+        self, natural_query: str, **audit_labels
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         raise NotImplementedError
 
@@ -38,9 +42,9 @@ class DirectDBLayer(DataAccessLayer):
         self.assistant = assistant
 
     async def execute(
-        self, natural_query: str
+        self, natural_query: str, **audit_labels
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
-        return self.assistant._execute_direct(natural_query)
+        return self.assistant._execute_direct(natural_query, **audit_labels)
 
 
 class EnhancedQueryAssistant:
@@ -63,10 +67,18 @@ class EnhancedQueryAssistant:
         openai_api_key: str,
         guard_config: GuardConfig | None = None,
         model_config: ModelConfig | None = None,
+        audit_config: AuditConfig | None = None,
     ):
         self.db_path = db_path
         self.guard_config = guard_config or load_guard_config()
         self.model_config = model_config or load_model_config()
+        # Fails closed (AuditConfigError) before any client is built; see
+        # audit_log.load_audit_config. There is no way to turn auditing off.
+        audit_config = audit_config or load_audit_config(db_path)
+        identity = audit_config.db_identity
+        if identity is not None and identity.path != Path(db_path).resolve():
+            raise ValueError("audit_config was loaded for a different database")
+        self.audit = AuditLogger(audit_config, schema_identifiers(db_path))
         logger.info(
             "model provider=%s id=%s",
             self.model_config.provider,
@@ -84,20 +96,76 @@ class EnhancedQueryAssistant:
         self.data_layer: DataAccessLayer = DirectDBLayer(self)
 
     def _execute_direct(
-        self, natural_query: str
+        self,
+        natural_query: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         start = time.time()
-        similar_queries = self._find_similar_queries(natural_query)
-        # check_sql is idempotent; it returns the exact statement that runs.
-        sql_query = check_sql(self._generate_sql(natural_query))
-
-        columns, rows, truncated = run_readonly_query(
-            self.db_path, sql_query, self.guard_config
+        request_id = request_id or str(uuid.uuid4())
+        audit = {
+            "request_id": request_id,
+            "session_id": session_id,
+            "question": natural_query,
+            "sql": None,
+            "steps": 0,
+            "model_provider": self.model_config.provider,
+            "model_id": self.model_config.model_id,
+            "response_model": None,
+        }
+        stats: dict[str, int] = {}
+        # Per-connection identity check before anything runs (no model call,
+        # no SQL): fails closed in outcome-only / raw-text mode if the file is
+        # no longer chinook.db. Chroma history is read and written only for
+        # chinook.db.
+        try:
+            is_chinook = self.audit.require_db_allowed()
+        except Exception as e:
+            self.audit.record_refusal(
+                e,
+                request_id=request_id,
+                session_id=session_id,
+                model_provider=self.model_config.provider,
+                model_id=self.model_config.model_id,
+            )
+            raise
+        try:
+            similar_queries = (
+                self._find_similar_queries(natural_query) if is_chinook else []
+            )
+            raw_sql, audit["response_model"] = self._generate(natural_query)
+            audit["sql"] = raw_sql
+            # check_sql is idempotent; it returns the exact statement that runs.
+            sql_query = check_sql(raw_sql)
+            audit["sql"] = sql_query
+            columns, rows, truncated = run_readonly_query(
+                self.db_path, sql_query, self.guard_config, stats=stats
+            )
+        except GuardError as e:
+            audit["steps"] = getattr(e, "steps", None) or stats.get("steps", 0)
+            self.audit.record(
+                outcome="blocked", block_reason=e.reason, error=e, **audit
+            )
+            raise
+        except Exception as e:
+            audit["steps"] = stats.get("steps", 0)
+            self.audit.record(outcome="error", error=e, **audit)
+            raise
+        audit["steps"] = stats.get("steps", 0)
+        # Only counts and flags are audited, never result rows or cell values.
+        self.audit.record(
+            outcome="truncated" if truncated else "answered",
+            row_count=len(rows),
+            truncated=truncated,
+            **audit,
         )
+
         result_df = pd.DataFrame.from_records(rows, columns=columns)
         result_df.attrs["truncated"] = truncated
         result_df.attrs["row_cap"] = self.guard_config.row_cap
         result_df.attrs["sql_query"] = sql_query
+        result_df.attrs["request_id"] = request_id
 
         latency_ms = round((time.time() - start) * 1000, 2)
         metadata = {
@@ -108,7 +176,10 @@ class EnhancedQueryAssistant:
             "model_provider": self.model_config.provider,
             "model_id": self.model_config.model_id,
         }
-        self._store_query(natural_query, sql_query, metadata)
+        # Chroma keeps plain question/SQL history, so only for the bundled
+        # sample DB (identified by sha256 at startup).
+        if is_chinook:
+            self._store_query(natural_query, sql_query, metadata)
         return result_df, similar_queries
 
     def _get_db_schema(self) -> str:
@@ -158,6 +229,10 @@ class EnhancedQueryAssistant:
 
     def _generate_sql(self, natural_query: str) -> str:
         """Generate SQL with the configured model using structured output."""
+        return self._generate(natural_query)[0]
+
+    def _generate(self, natural_query: str) -> tuple[str, str | None]:
+        """(SQL, model name the API reported) for one question."""
         prompt = f"""Convert the following natural language query to SQL.
 Database Schema:
 {self.schema}
@@ -181,24 +256,32 @@ Respond with ONLY valid SQL. No explanations."""
             response_format=SQLResponse,
         )
         # Q12: keep the alias as the default, but log the model the API ran.
-        logger.info("response model=%s", getattr(response, "model", None))
-        return response.choices[0].message.parsed.sql_query.strip()
+        response_model = getattr(response, "model", None)
+        logger.info("response model=%s", response_model)
+        return response.choices[0].message.parsed.sql_query.strip(), response_model
 
     def execute_query(
-        self, natural_query: str
+        self,
+        natural_query: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         """Run a natural-language query.
 
         Returns (results, similar_queries). results.attrs["truncated"] is True
         when the result hit the row cap (results.attrs["row_cap"]) and later
         rows were dropped; see is_truncated(). results.attrs["sql_query"] is
-        the SQL that was executed.
+        the SQL that was executed and results.attrs["request_id"] the audit
+        row's request_id. Every call writes exactly one audit row, also when
+        the query is blocked or fails.
         """
+        labels = {"session_id": session_id, "request_id": request_id}
         if self.data_layer is not None:
             import asyncio
 
-            return asyncio.run(self.data_layer.execute(natural_query))
-        return self._execute_direct(natural_query)
+            return asyncio.run(self.data_layer.execute(natural_query, **labels))
+        return self._execute_direct(natural_query, **labels)
 
 
 def is_truncated(df: pd.DataFrame) -> bool:

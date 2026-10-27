@@ -29,6 +29,8 @@ _ADQ_CONFIG_ENV = (
     "ADQ_SQL_ROW_CAP",
     "ADQ_SQL_TIMEOUT_S",
     "ADQ_CORS_ORIGINS",
+    "ADQ_AUDIT_HMAC_KEY",
+    "ADQ_AUDIT_RAW_TEXT",
 )
 
 _REDTEAM_KEY = pytest.StashKey[dict]()
@@ -69,15 +71,19 @@ class NetworkBlockedError(OSError):
 
 
 @pytest.fixture(autouse=True)
-def _offline(monkeypatch):
+def _offline(monkeypatch, tmp_path_factory):
     """No key, no telemetry, no outbound sockets, no inherited ADQ_* config.
 
-    A test that needs the network fails.
+    A test that needs the network fails. The audit log goes to a fresh
+    per-test temp dir (outside tmp_path, so DB-directory snapshots are
+    unaffected), never to the repo's audit/.
     """
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     for name in _ADQ_CONFIG_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANONYMIZED_TELEMETRY", "False")
+    audit_dir = tmp_path_factory.mktemp("audit")
+    monkeypatch.setenv("ADQ_AUDIT_PATH", str(audit_dir / "adq_audit.jsonl"))
 
     def _deny_connect(self, address, *args, **kwargs):
         raise NetworkBlockedError(f"network access in tests is a failure: {address!r}")

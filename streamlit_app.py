@@ -1,4 +1,5 @@
 import time
+import uuid
 from collections.abc import Mapping
 
 import pandas as pd
@@ -6,10 +7,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from audit_log import AuditConfigError, load_audit_config
 from config import load_model_config, load_openai_api_key, secrets_section
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 from sql_guard import load_guard_config
 
+OUTCOME_ONLY_CAPTION = (
+    "Audit log: outcomes only. "
+    "Set ADQ_AUDIT_HMAC_KEY to also log hashed questions and masked SQL."
+)
 MISSING_KEY_MESSAGE = (
     "Set OPENAI_API_KEY or [openai] api_key in .streamlit/secrets.toml"
 )
@@ -79,12 +85,27 @@ def main():
         if not openai_key:
             st.error(MISSING_KEY_MESSAGE)
             st.stop()
+        try:
+            audit_config = load_audit_config(
+                "chinook.db", secrets_section(secrets, "audit")
+            )
+        except AuditConfigError as e:
+            st.error(str(e))
+            st.stop()
         st.session_state.assistant = EnhancedQueryAssistant(
             "chinook.db",
             openai_key,
             guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
             model_config=load_model_config(secrets_section(secrets, "model")),
+            audit_config=audit_config,
         )
+    if st.session_state.assistant.audit.config.mode == "outcome_only":
+        st.caption(OUTCOME_ONLY_CAPTION)
+
+    # Audit session label: a random uuid4 per browser session, not derived
+    # from the user.
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
 
     # Query input
     query = st.text_input(
@@ -105,7 +126,9 @@ def main():
         try:
             with st.spinner("🔍 Generating SQL and running query..."):
                 start = time.time()
-                results, similar = st.session_state.assistant.execute_query(query)
+                results, similar = st.session_state.assistant.execute_query(
+                    query, session_id=st.session_state.session_id
+                )
                 latency = round((time.time() - start) * 1000, 2)
 
             st.success(f"✅ Query completed in {latency} ms")
@@ -126,6 +149,11 @@ def main():
                         f"• {sq['natural_query']} "
                         f"(latency: {sq.get('latency_ms', 'N/A')} ms)"
                     )
+        except AuditConfigError as e:
+            # The DB file changed and is no longer chinook.db: refused exactly
+            # like a non-chinook DB at startup.
+            st.error(str(e))
+            st.stop()
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
 

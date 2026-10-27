@@ -42,4 +42,4 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov=sql_guard --cov-report=term --cov-fail-under=0
+          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0

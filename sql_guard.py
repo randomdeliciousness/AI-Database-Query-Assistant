@@ -223,9 +223,18 @@ def open_guarded(
 
 
 def run_readonly_query(
-    db_path: str | os.PathLike, sql: str, config: GuardConfig | None = None
+    db_path: str | os.PathLike,
+    sql: str,
+    config: GuardConfig | None = None,
+    stats: dict | None = None,
 ) -> tuple[list[str], list[tuple], bool]:
-    """Run one read-only query. Returns (columns, rows, truncated)."""
+    """Run one read-only query. Returns (columns, rows, truncated).
+
+    If ``stats`` is given, stats["steps"] is set to the VM step count (in
+    blocks of _PROGRESS_STEP_N), also when the query is refused or fails.
+    """
+    if stats is not None:
+        stats["steps"] = 0
     config = config or load_guard_config()
     sql = check_sql(sql)
     state = {"denied": [], "abort": None, "steps": 0}
@@ -266,5 +275,7 @@ def run_readonly_query(
         raise
     finally:
         conn.close()
+        if stats is not None:
+            stats["steps"] = state["steps"]
     truncated = len(rows) > config.row_cap
     return columns, rows[: config.row_cap], truncated

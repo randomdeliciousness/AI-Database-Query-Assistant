@@ -24,7 +24,7 @@ from config import (
     load_openai_api_key,
     secrets_section,
 )
-from sql_guard import GuardConfig, GuardError, load_guard_config
+from sql_guard import GuardConfig, GuardError, load_guard_config, run_readonly_query
 
 REPO = Path(__file__).resolve().parent.parent
 EXPECTED_RED_TEAM_CASES = 41
@@ -111,3 +111,47 @@ def test_secrets_example_values_fall_back_to_defaults():
     assert load_guard_config(secrets_section(data, "sql_guard")) == GuardConfig()
     assert load_cors_origins(secrets_section(data, "api")) == list(DEFAULT_CORS_ORIGINS)
     assert load_openai_api_key(secrets_section(data, "openai")) is None
+
+
+# README Limitations: the guard rejects some valid read-only SQL.
+REJECTED_VALID_SQL = {
+    "`EXPLAIN`": "EXPLAIN SELECT Name FROM Genre",
+    "`pragma_table_info`": "SELECT name FROM pragma_table_info('Genre')",
+    "`VALUES`": "VALUES (1), (2)",
+}
+
+
+@pytest.mark.parametrize("label,sql", REJECTED_VALID_SQL.items())
+def test_guard_rejects_listed_valid_sql(tmp_path, label, sql):
+    db = tmp_path / "chinook.db"
+    shutil.copyfile(REPO / "chinook.db", db)
+    with pytest.raises(GuardError):
+        run_readonly_query(db, sql, GuardConfig(1_000_000, 100, 60.0))
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    line = next(ln for ln in readme.splitlines() if ln.startswith("**Limitations:**"))
+    assert "rejects some valid read-only SQL" in line
+    assert label in line
+
+
+LIMITATIONS_FIRST_PART = (
+    "**Limitations:** The app and API are built for the bundled Chinook sample "
+    "database. Sample DB identity is verified by sha256, not file name, and "
+    "re-checked when the file's size, mtime or inode changes; an in-place edit "
+    "that preserves size and mtime is not detected. Any other database needs an "
+    "audit key."
+)
+
+
+def test_readme_limitations_describes_identity_check():
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    line = next(ln for ln in readme.splitlines() if ln.startswith("**Limitations:**"))
+    assert line.startswith(LIMITATIONS_FIRST_PART + " ")
+    assert "re-checked when the file's size, mtime or inode changes" in readme
+
+
+def test_readme_says_keyed_hash_never_anonymized():
+    for name in ("README.md", "audit_log.py", ".streamlit/secrets.example.toml"):
+        text = (REPO / name).read_text(encoding="utf-8").lower()
+        assert "anonymi" not in text, name
+    assert "keyed hash" in (REPO / "README.md").read_text(encoding="utf-8")
+    assert "keyed hash" in (REPO / "audit_log.py").read_text(encoding="utf-8")

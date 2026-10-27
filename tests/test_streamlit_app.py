@@ -150,4 +150,9 @@ def test_no_mcp_checkbox_or_overclaims(app):
     at = app
     at.run()
     assert len(at.sidebar.checkbox) == 0
-    assert [c.value for c in at.caption] == ["Natural Language → SQL → Insights"]
+    # No key in this fixture, so the outcome-only audit caption follows.
+    assert [c.value for c in at.caption] == [
+        "Natural Language → SQL → Insights",
+        "Audit log: outcomes only. "
+        "Set ADQ_AUDIT_HMAC_KEY to also log hashed questions and masked SQL.",
+    ]
