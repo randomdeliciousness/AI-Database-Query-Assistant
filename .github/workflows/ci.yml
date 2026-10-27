@@ -35,6 +35,9 @@ jobs:
           python -m pip install --require-hashes --only-binary :all: -r requirements.lock -r requirements-ci.lock
           python -m pip check
 
+      - name: Show SQLite version
+        run: python -c "import sqlite3; print('sqlite', sqlite3.sqlite_version)"
+
       - name: Lint (check only)
         run: |
           ruff check .

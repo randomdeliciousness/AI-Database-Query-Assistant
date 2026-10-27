@@ -689,7 +689,8 @@ def test_non_chinook_dqs_error_not_logged(tmp_path, key, monkeypatch, caplog, ca
     with caplog.at_level("DEBUG"):
         a = _assistant(db)
         assert a.audit.config.db_is_chinook is False
-        with pytest.raises(sqlite3.OperationalError, match='no such column: "Smith"'):
+        # Type only: SQLite's wording ("Smith" quoted or not) varies by version.
+        with pytest.raises(sqlite3.OperationalError):
             _ask(a, 'SELECT * FROM Customer WHERE LastName = "Smith"')
         a.client.completions.sql = 'SELECT * FROM Customer WHERE LastName = "Smith"'
         monkeypatch.setattr(mcp_server, "_assistant", a)
@@ -697,8 +698,15 @@ def test_non_chinook_dqs_error_not_logged(tmp_path, key, monkeypatch, caplog, ca
         with TestClient(mcp_server.app) as client:
             body = _rpc(client).json()
     assert body["error"] is not None
-    row = _rows()[0]
-    assert (row["outcome"], row["error_class"]) == ("error", "OperationalError")
+    assert body["result"] is None
+    rows = _rows()
+    assert len(rows) == 2  # direct call, then the /mcp call
+    for row in rows:
+        assert (row["outcome"], row["error_class"]) == ("error", "OperationalError")
+        # Passes the guard and fails at execution: no block reason, no rows.
+        assert row["block_reason"] is None
+        assert row["row_count"] is None
+        assert row["truncated"] is None
     _assert_no_smith(caplog, capsys)
 
 
