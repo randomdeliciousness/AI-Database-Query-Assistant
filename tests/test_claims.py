@@ -7,6 +7,7 @@
   not ignored, while .streamlit/secrets.toml is.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -72,14 +73,22 @@ def test_dockerignore_does_not_reinclude_secrets():
     assert not any(p.startswith("!") for p in _patterns(".dockerignore"))
 
 
+# The Docker test image has no .git, so this check is skipped there. The main
+# CI job sets ADQ_REQUIRE_GIT=1 on a full checkout, so it never skips there.
+_HAS_GIT = shutil.which("git") is not None and (REPO / ".git").exists()
+_REQUIRE_GIT = os.environ.get("ADQ_REQUIRE_GIT") == "1"
+
+
 def _git_check_ignore(path):
-    if shutil.which("git") is None or not (REPO / ".git").exists():
-        pytest.skip("needs a git checkout")
     return subprocess.run(
         ["git", "check-ignore", "-q", path], cwd=REPO, check=False
     ).returncode
 
 
+@pytest.mark.skipif(
+    not _HAS_GIT and not _REQUIRE_GIT,
+    reason="needs a .git checkout (absent in the Docker test image)",
+)
 def test_git_ignores_secrets_but_not_the_example():
     assert _git_check_ignore(".streamlit/secrets.example.toml") == 1
     for path in (".streamlit/secrets.toml", ".env", "audit/x.jsonl", "chroma_db/x"):

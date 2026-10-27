@@ -1,5 +1,17 @@
-# Keep secrets and local state out of the image (Dockerfile runs COPY . .).
+# Keep secrets and local state out of the build context.
 .env
 .streamlit/secrets.toml
 audit/
 chroma_db/
+data/audit.jsonl
+data/
+# VCS, caches and local environments.
+.git
+.github
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+venv/
+.venv/

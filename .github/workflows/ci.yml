@@ -15,6 +15,8 @@ jobs:
       OPENAI_API_KEY: ""
       ANONYMIZED_TELEMETRY: "False"
       HF_HUB_OFFLINE: "1"
+      # Full checkout: the .git-dependent claims test must run here, never skip.
+      ADQ_REQUIRE_GIT: "1"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -45,4 +47,42 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0
+          PYTHONPATH=. pytest tests/ --verbose -rs --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0
+
+  # ADQ-1b-R: build the pinned image on GitHub's runner (Policy route 2; never
+  # built locally) and run the full test suite inside it with no network and
+  # no keys. Nothing is pushed and no registry login is used.
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build runtime image
+        run: docker build --target runtime -t adq:ci .
+
+      - name: Build test image
+        run: docker build --target test -t adq:ci-test .
+
+      - name: Record base image digest
+        run: docker image inspect python:3.13.5-slim --format '{{index .RepoDigests 0}}'
+
+      - name: Record base image os-release
+        run: docker run --rm python:3.13.5-slim cat /etc/os-release
+
+      - name: Record base image Debian license inventory
+        run: |
+          docker run --rm python:3.13.5-slim sh -c 'ls /usr/share/doc/*/copyright | wc -l; grep -l -i -E "GNU AFFERO|AGPL" /usr/share/doc/*/copyright || true'
+
+      - name: Runtime image has no tests
+        run: docker run --rm --network none adq:ci sh -c 'test ! -e /app/tests'
+
+      - name: Run tests in the test image (no network, no keys)
+        run: |
+          docker run --rm --network none \
+            -e ANONYMIZED_TELEMETRY=False -e HF_HUB_OFFLINE=1 \
+            adq:ci-test python -m pytest tests/ -q -p no:cacheprovider
