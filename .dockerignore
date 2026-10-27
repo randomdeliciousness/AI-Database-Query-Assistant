@@ -1,0 +1,5 @@
+# Keep secrets and local state out of the image (Dockerfile runs COPY . .).
+.env
+.streamlit/secrets.toml
+audit/
+chroma_db/

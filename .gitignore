@@ -1,6 +1,7 @@
 # Environment variables
 .env
 .streamlit/secrets.toml
+!.streamlit/secrets.example.toml
 
 # Python
 __pycache__/
@@ -38,6 +39,9 @@ env/
 # Database
 vector_store/
 chroma_db/
+
+# Audit log (local only)
+audit/
 
 # OS
 .DS_Store

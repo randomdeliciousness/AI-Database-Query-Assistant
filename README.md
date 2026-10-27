@@ -25,11 +25,11 @@ git clone https://github.com/randomdeliciousness/AI-Database-Query-Assistant.git
 cd AI-Database-Query-Assistant
 pip install -r requirements.txt
 # Download Chinook DB if missing: curl -L -o chinook.db https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite
-mkdir -p .streamlit && printf '[openai]\napi_key = "YOUR_OPENAI_API_KEY"\n' > .streamlit/secrets.toml
+cp .streamlit/secrets.example.toml .streamlit/secrets.toml  # then put your key in it
 # The FastAPI server (mcp_server.py) reads OPENAI_API_KEY from the environment instead.
 streamlit run streamlit_app.py
 ```
 
 Environment variables take precedence over .streamlit/secrets.toml.
 
-**Limitations:** the app and API query only the bundled Chinook sample database. An OpenAI API key is required, and every question is a model call. Generated SQL is checked for safety, not for correctness. The read-only SQL guard is defense in depth (41 of 41 red-team cases blocked by `tests/test_sql_guard.py`, measured at commit `e9d5eeed`), not a guarantee. Results stop at a row cap (10,000 rows by default) and the app says when that happens.
+**Limitations:** the app and API query only the bundled Chinook sample database. An OpenAI API key is required, and every question is a model call. Generated SQL is checked for safety, not for correctness. The read-only SQL guard is defense in depth (41 of 41 red-team cases in `tests/test_sql_guard.py` are blocked; CI enforces this on every commit), not a guarantee. Results stop at a row cap (10,000 rows by default) and the app says when that happens.
