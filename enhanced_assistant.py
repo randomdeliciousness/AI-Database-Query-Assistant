@@ -1,9 +1,10 @@
-from openai import OpenAI
-import pandas as pd
-import chromadb
 import datetime
 import time
-from typing import Dict, List, Tuple, Any
+from typing import Any
+
+import chromadb
+import pandas as pd
+from openai import OpenAI
 from pydantic import BaseModel
 
 from sql_guard import (
@@ -23,7 +24,7 @@ class DataAccessLayer:
 
     async def execute(
         self, natural_query: str
-    ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         raise NotImplementedError
 
 
@@ -33,7 +34,7 @@ class DirectDBLayer(DataAccessLayer):
 
     async def execute(
         self, natural_query: str
-    ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         return self.assistant._execute_direct(natural_query)
 
 
@@ -73,7 +74,7 @@ class EnhancedQueryAssistant:
 
     def _execute_direct(
         self, natural_query: str
-    ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         start = time.time()
         similar_queries = self._find_similar_queries(natural_query)
         sql_query = self._generate_sql(natural_query)
@@ -112,7 +113,7 @@ class EnhancedQueryAssistant:
         return "\n".join(schema_info)
 
     def _store_query(
-        self, natural_query: str, sql_query: str, metadata: Dict[str, Any]
+        self, natural_query: str, sql_query: str, metadata: dict[str, Any]
     ):
         timestamp = datetime.datetime.now().isoformat()
         self.collection.add(
@@ -123,7 +124,7 @@ class EnhancedQueryAssistant:
 
     def _find_similar_queries(
         self, query: str, n_results: int = 3
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         results = self.collection.query(query_texts=[query], n_results=n_results)
         if not results["documents"][0]:
             return []
@@ -134,7 +135,9 @@ class EnhancedQueryAssistant:
                 "timestamp": meta["timestamp"],
                 "latency_ms": meta.get("latency_ms"),
             }
-            for doc, meta in zip(results["documents"][0], results["metadatas"][0])
+            for doc, meta in zip(
+                results["documents"][0], results["metadatas"][0], strict=False
+            )
         ]
 
     def _generate_sql(self, natural_query: str) -> str:
@@ -152,7 +155,10 @@ Respond with ONLY valid SQL. No explanations."""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a SQL expert. Convert natural language to precise SQL.",
+                    "content": (
+                        "You are a SQL expert. "
+                        "Convert natural language to precise SQL."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -162,7 +168,7 @@ Respond with ONLY valid SQL. No explanations."""
 
     def execute_query(
         self, natural_query: str
-    ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         if self.data_layer is not None:
             import asyncio
 

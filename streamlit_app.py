@@ -1,12 +1,14 @@
-import streamlit as st
-import pandas as pd
 import time
-from enhanced_assistant import EnhancedQueryAssistant
+
+import pandas as pd
 import plotly.express as px
-from typing import Optional, Union
+import plotly.graph_objects as go
+import streamlit as st
+
+from enhanced_assistant import EnhancedQueryAssistant
 
 
-def create_visualization(df: pd.DataFrame) -> Optional[Union[px.bar, px.scatter]]:
+def create_visualization(df: pd.DataFrame) -> go.Figure | None:
     """Create a visualization based on the data."""
     if len(df) == 0:
         return None
@@ -82,14 +84,16 @@ def main():
                 st.subheader("🔍 Similar Previous Queries")
                 for sq in similar:
                     st.write(
-                        f"• {sq['natural_query']} (latency: {sq.get('latency_ms', 'N/A')} ms)"
+                        f"• {sq['natural_query']} "
+                        f"(latency: {sq.get('latency_ms', 'N/A')} ms)"
                     )
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
 
     with st.expander("ℹ️ About the Database"):
         st.write(
-            "Chinook sample database (digital media store). Ask anything about sales, artists, customers, etc."
+            "Chinook sample database (digital media store). "
+            "Ask anything about sales, artists, customers, etc."
         )
 
 

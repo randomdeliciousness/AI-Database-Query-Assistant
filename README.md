@@ -1,6 +1,6 @@
 # 🚀 AI Database Query Assistant
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-FF4B4B.svg)](https://streamlit.io)
 [![JSON-RPC 2.0](https://img.shields.io/badge/API-JSON--RPC%202.0-blueviolet)](https://www.jsonrpc.org/specification)
@@ -30,4 +30,3 @@ mkdir -p .streamlit && printf '[openai]\napi_key = "YOUR_OPENAI_API_KEY"\n' > .s
 streamlit run streamlit_app.py
 ```
 
-✅ CI now fully passing with automatic Black + Ruff formatting!

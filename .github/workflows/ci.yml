@@ -2,50 +2,44 @@ name: CI/CD Pipeline
 
 on: [push, pull_request]
 
+# Read-only token: CI checks the code and never writes back to the repo.
+permissions:
+  contents: read
+
 jobs:
   test-and-lint:
     runs-on: ubuntu-latest
 
+    env:
+      # Tests never call a real model or the network (OpenAI and Chroma are mocked).
+      OPENAI_API_KEY: ""
+      ANONYMIZED_TELEMETRY: "False"
+      HF_HUB_OFFLINE: "1"
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          fetch-depth: 0  # needed for auto-commit
+          persist-credentials: false
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python 3.13
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
-      - name: Download Chinook DB
+      - name: Verify committed Chinook DB
         run: |
-          curl -L -o chinook.db https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite
+          echo "7651ba378ac2fcd0dfc3c66fb101f7a7eed3ba39a612ec642b96e20702061f15  chinook.db" | sha256sum --check --strict
 
-      - name: Install dependencies
+      - name: Install dependencies (hash-pinned)
         run: |
-          pip install -r requirements.txt pytest pytest-asyncio ruff black pytest-cov
+          python -m pip install --require-hashes --only-binary :all: -r requirements.lock -r requirements-ci.lock
+          python -m pip check
 
-      - name: Auto-fix with Ruff
-        run: ruff check . --fix
-
-      - name: Auto-format with Black
-        run: black .
-
-      - name: Commit formatted files (if Black or Ruff changed anything)
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "style: auto-format with Black + Ruff"
-          branch: ${{ github.head_ref || github.ref_name }}
-
-      - name: Check that everything is clean
+      - name: Lint (check only)
         run: |
           ruff check .
           black --check .
 
       - name: Run tests
         run: |
-          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov-report=term --cov-fail-under=0
-
-      - name: Upload coverage (optional)
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          PYTHONPATH=. pytest tests/ --verbose --cov=enhanced_assistant --cov=sql_guard --cov-report=term --cov-fail-under=0

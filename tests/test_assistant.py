@@ -1,17 +1,19 @@
-import sys
-import os
-import pytest
+import shutil
+from pathlib import Path
 
-# Fix import path for GitHub Actions + local runs
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import pytest
 
 from enhanced_assistant import EnhancedQueryAssistant
 
+REPO_DB = Path(__file__).resolve().parent.parent / "chinook.db"
+
 
 @pytest.fixture
-def assistant():
-    # Use a dummy key; real tests would mock OpenAI
-    return EnhancedQueryAssistant("chinook.db", "dummy-key")
+def assistant(tmp_path):
+    # OpenAI and Chroma are replaced with fakes in conftest.py; the DB is a tmp copy.
+    db = tmp_path / "chinook.db"
+    shutil.copyfile(REPO_DB, db)
+    return EnhancedQueryAssistant(str(db), "dummy-key")
 
 
 def test_schema_loaded(assistant):

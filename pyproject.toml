@@ -1,0 +1,14 @@
+# Tool configuration only (this repo is not packaged).
+# Lint rule set per Review (Interviewer) Q6 ruling; stricter rules come later as their own commit.
+
+[tool.ruff]
+required-version = "==0.17.3"
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.black]
+line-length = 88
+target-version = ["py313"]

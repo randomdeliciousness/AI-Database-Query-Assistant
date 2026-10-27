@@ -1,11 +1,13 @@
+import logging
 import os
-from typing import Dict, Any
+from typing import Any
+
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from enhanced_assistant import EnhancedQueryAssistant
-import uvicorn
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
@@ -44,14 +46,14 @@ def get_assistant() -> EnhancedQueryAssistant:
 class MCPRequest(BaseModel):
     jsonrpc: str = "2.0"
     method: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
     id: Any = None
 
 
 class MCPResponse(BaseModel):
     jsonrpc: str = "2.0"
     result: Any = None
-    error: Dict[str, Any] = None
+    error: dict[str, Any] = None
     id: Any = None
 
 
