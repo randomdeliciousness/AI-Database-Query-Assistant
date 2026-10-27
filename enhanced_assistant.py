@@ -1,11 +1,17 @@
 from openai import OpenAI
-import sqlite3
 import pandas as pd
 import chromadb
 import datetime
 import time
 from typing import Dict, List, Tuple, Any
 from pydantic import BaseModel
+
+from sql_guard import (
+    GuardConfig,
+    load_guard_config,
+    open_readonly_plain,
+    run_readonly_query,
+)
 
 
 class SQLResponse(BaseModel):
@@ -45,8 +51,15 @@ class EnhancedQueryAssistant:
         "Show the most common media types by sales volume",
     ]
 
-    def __init__(self, db_path: str, openai_api_key: str, use_mcp: bool = False):
+    def __init__(
+        self,
+        db_path: str,
+        openai_api_key: str,
+        use_mcp: bool = False,
+        guard_config: GuardConfig | None = None,
+    ):
         self.db_path = db_path
+        self.guard_config = guard_config or load_guard_config()
         self.client = OpenAI(api_key=openai_api_key)
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -65,28 +78,32 @@ class EnhancedQueryAssistant:
         similar_queries = self._find_similar_queries(natural_query)
         sql_query = self._generate_sql(natural_query)
 
-        conn = sqlite3.connect(self.db_path)
-        result_df = pd.read_sql_query(sql_query, conn)
-        conn.close()
+        columns, rows, truncated = run_readonly_query(
+            self.db_path, sql_query, self.guard_config
+        )
+        result_df = pd.DataFrame.from_records(rows, columns=columns)
+        result_df.attrs["truncated"] = truncated
 
         latency_ms = round((time.time() - start) * 1000, 2)
         metadata = {
             "row_count": len(result_df),
             "execution_time": datetime.datetime.now().isoformat(),
             "latency_ms": latency_ms,
+            "truncated": truncated,
         }
         self._store_query(natural_query, sql_query, metadata)
         return result_df, similar_queries
 
     def _get_db_schema(self) -> str:
-        conn = sqlite3.connect(self.db_path)
+        conn = open_readonly_plain(self.db_path)
         cursor = conn.cursor()
         schema_info = []
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = cursor.fetchall()
         for table in tables:
             table_name = table[0]
-            cursor.execute(f"PRAGMA table_info({table_name});")
+            quoted = '"' + table_name.replace('"', '""') + '"'
+            cursor.execute(f"PRAGMA table_info({quoted});")
             columns = cursor.fetchall()
             column_info = [f"{col[1]} ({col[2]})" for col in columns]
             schema_info.append(f"Table {table_name}:")
