@@ -63,18 +63,17 @@ def create_visualization(df: pd.DataFrame) -> go.Figure | None:
     return None
 
 
+def _use_sample(sample: str) -> None:
+    """Button callback: put the sample question in the query box."""
+    st.session_state.query = sample
+
+
 def main():
     st.title("🚀 AI-Powered Database Query Assistant")
-    st.caption("MCP + Runlayer Ready | Natural Language → SQL → Insights")
-
-    # Sidebar MCP toggle
-    use_mcp = st.sidebar.checkbox("🛡️ Use MCP Layer (Runlayer mode)", value=False)
+    st.caption("Natural Language → SQL → Insights")
 
     # Initialize assistant
-    if (
-        "assistant" not in st.session_state
-        or st.session_state.get("use_mcp") != use_mcp
-    ):
+    if "assistant" not in st.session_state:
         secrets = load_secrets()
         openai_key = load_openai_api_key(secrets_section(secrets, "openai"))
         if not openai_key:
@@ -83,29 +82,28 @@ def main():
         st.session_state.assistant = EnhancedQueryAssistant(
             "chinook.db",
             openai_key,
-            use_mcp=use_mcp,
             guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
             model_config=load_model_config(secrets_section(secrets, "model")),
         )
-        st.session_state.use_mcp = use_mcp
 
     # Query input
     query = st.text_input(
         "Enter your question about the music store data:",
         placeholder="e.g., Show me the top 5 customers by total purchase amount",
+        key="query",
     )
 
     # Sample queries
     with st.expander("📋 Sample Queries (click to run)"):
         cols = st.columns(2)
         for i, sample in enumerate(st.session_state.assistant.SAMPLE_QUERIES):
-            if cols[i % 2].button(sample, key=f"sample_{i}"):
-                query = sample
-                st.rerun()
+            cols[i % 2].button(
+                sample, key=f"sample_{i}", on_click=_use_sample, args=(sample,)
+            )
 
     if query:
         try:
-            with st.spinner("🔍 Processing with LLM + Vector RAG..."):
+            with st.spinner("🔍 Generating SQL and running query..."):
                 start = time.time()
                 results, similar = st.session_state.assistant.execute_query(query)
                 latency = round((time.time() - start) * 1000, 2)

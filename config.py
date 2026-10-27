@@ -13,9 +13,12 @@ Secrets (st.secrets layout):
     [model]   provider, model_id
     [openai]  api_key
     [sql_guard] step_budget, row_cap, timeout_s (read by sql_guard)
+    [api]     cors_origins (list of origins for the JSON-RPC API)
+Env ADQ_CORS_ORIGINS: comma-separated origins for the JSON-RPC API.
 """
 
 import os
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +26,15 @@ from typing import Any
 DEFAULT_PROVIDER = "openai"
 DEFAULT_MODEL_ID = "gpt-4o"
 SUPPORTED_PROVIDERS = ("openai",)
+DEFAULT_SECRETS_PATH = ".streamlit/secrets.toml"
+# Browser origins allowed to call the JSON-RPC API: localhost only by default
+# (the API on :8000 and the Streamlit app on :8501).
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8501",
+    "http://127.0.0.1:8501",
+)
 
 
 @dataclass(frozen=True)
@@ -76,3 +88,30 @@ def load_openai_api_key(secrets: Mapping | None = None) -> str | None:
     """
     secrets = secrets or {}
     return os.getenv("OPENAI_API_KEY") or secrets.get("api_key") or None
+
+
+def load_secrets_file(path: str | os.PathLike = DEFAULT_SECRETS_PATH) -> dict:
+    """Parse a secrets.toml for processes without st.secrets (the API server).
+
+    A missing file gives {}. The values are never logged.
+    """
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def load_cors_origins(secrets: Mapping | None = None) -> list[str]:
+    """Env ADQ_CORS_ORIGINS (comma-separated), then secrets, then localhost.
+
+    ``secrets`` is the api section (e.g. secrets["api"]) with key
+    cors_origins, a list of origins or a comma-separated string.
+    """
+    secrets = secrets or {}
+    raw = os.getenv("ADQ_CORS_ORIGINS") or secrets.get("cors_origins")
+    if not raw:
+        return list(DEFAULT_CORS_ORIGINS)
+    items = raw.split(",") if isinstance(raw, str) else list(raw)
+    origins = [str(o).strip() for o in items if str(o).strip()]
+    return origins or list(DEFAULT_CORS_ORIGINS)

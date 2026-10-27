@@ -19,6 +19,7 @@ from conftest import (
     FakeOpenAI,
     NetworkBlockedError,
 )
+from fastapi.testclient import TestClient
 
 import mcp_server
 from config import DEFAULT_MODEL_ID, ModelConfig
@@ -176,10 +177,8 @@ def test_truncated_row_cap_from_env(monkeypatch, tmp_db):
     assert is_truncated(df) is True
 
 
-# The JSON-RPC result body is built by mcp_server.build_query_result from the
-# assistant's (results, similar) return value. The endpoint itself is not run
-# here: execute_query calls asyncio.run, which fails inside a running event loop
-# (pre-existing, reported for Review, not changed in C3).
+# The JSON-RPC result body, built by mcp_server.build_query_result from the
+# assistant's (results, similar) return value.
 def test_api_reports_truncated(tmp_db):
     a = _capped(tmp_db, 4)
     _model(a).sql = GENRES
@@ -187,6 +186,7 @@ def test_api_reports_truncated(tmp_db):
     assert result["row_count"] == 4
     assert len(result["results"]) == 4
     assert result["truncated"] is True
+    assert result["sql_query"] == GENRES
 
 
 def test_api_reports_not_truncated(tmp_db):
@@ -205,5 +205,89 @@ def test_response_model_is_logged(monkeypatch, tmp_db, caplog):
     with caplog.at_level("INFO", logger="enhanced_assistant"):
         a.execute_query("one")
     assert _model(a).calls[-1]["model"] == "gpt-4o"
-    assert "model response id=gpt-4o-2099-01-01" in caplog.text
+    assert "response model=gpt-4o-2099-01-01" in caplog.text
     assert "test-not-a-key-log" not in caplog.text
+
+
+def test_executed_sql_is_on_the_result(tmp_db):
+    a = _capped(tmp_db, 100)
+    _model(a).sql = "  SELECT GenreId FROM Genre LIMIT 2 ;  "
+    df, _ = a.execute_query("two genres")
+    # The guard strips the trailing ';' and whitespace; this is what ran.
+    assert df.attrs["sql_query"] == "SELECT GenreId FROM Genre LIMIT 2"
+    assert a.collection.metadatas[-1]["sql_query"] == df.attrs["sql_query"]
+
+
+@pytest.fixture
+def api(monkeypatch, tmp_db):
+    a = _capped(tmp_db, 4)
+    _model(a).sql = GENRES
+    monkeypatch.setattr(mcp_server, "_assistant", a)
+    with TestClient(mcp_server.app) as client:
+        yield client
+
+
+def _rpc(client, question="all genres", **headers):
+    return client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "natural_language_query",
+            "params": {"natural_query": question},
+            "id": 7,
+        },
+        headers=headers,
+    )
+
+
+def test_mcp_endpoint_runs_inside_event_loop(api):
+    # Before C4, execute_query's asyncio.run failed inside FastAPI's loop.
+    response = _rpc(api)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] is None
+    assert body["id"] == 7
+    result = body["result"]
+    assert "truncated" in result
+    assert result["truncated"] is True
+    assert result["row_count"] == 4
+    assert result["sql_query"] == GENRES
+    assert "mcp_version" not in result
+
+
+def test_mcp_endpoint_reports_guard_block(api):
+    _model(mcp_server._assistant).sql = "DROP TABLE Genre"
+    response = _rpc(api, "drop it")
+    assert response.status_code == 200
+    assert response.json()["result"] is None
+    assert response.json()["error"]["code"] == -32000
+
+
+def test_health_has_no_overclaims(api):
+    assert api.get("/health").json() == {"status": "healthy"}
+
+
+def test_cors_allows_localhost_without_credentials(api):
+    response = _rpc(api, Origin="http://localhost:8501")
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8501"
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_cors_rejects_other_origins(api):
+    response = _rpc(api, Origin="https://app.example.com")
+    assert "access-control-allow-origin" not in response.headers
+    preflight = api.options(
+        "/mcp",
+        headers={
+            "Origin": "https://app.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert preflight.status_code == 400
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+def test_cors_middleware_config():
+    (cors,) = [m for m in mcp_server.app.user_middleware if "allow_origins" in m.kwargs]
+    assert cors.kwargs["allow_credentials"] is False
+    assert "*" not in cors.kwargs["allow_origins"]

@@ -434,3 +434,30 @@ def test_execute_direct_uses_guard(tmp_db):
     assert df.attrs["truncated"] is False
     assert fake.stored[0]["row_count"] == 3
     assert fake.stored[0]["truncated"] is False
+
+
+def test_double_quoted_strings_are_identifiers(tmp_db):
+    # DQS off: "Smith" is a column name, and Customer has no such column, so
+    # the query errors instead of matching LastName against the string Smith.
+    with pytest.raises(sqlite3.OperationalError, match="no such column"):
+        run_readonly_query(
+            tmp_db, 'SELECT * FROM Customer WHERE LastName = "Smith"', TEST_CONFIG
+        )
+    cols, rows, _ = run_readonly_query(
+        tmp_db, "SELECT LastName FROM Customer WHERE LastName = 'Smith'", TEST_CONFIG
+    )
+    assert rows == [("Smith",)]
+    # Double-quoted identifiers still work.
+    _, rows, _ = run_readonly_query(
+        tmp_db, 'SELECT "LastName" FROM "Customer" LIMIT 1', TEST_CONFIG
+    )
+    assert len(rows) == 1
+
+
+def test_dqs_disabled_on_connection(tmp_db):
+    conn = sql_guard.open_guarded(tmp_db)
+    try:
+        assert conn.getconfig(sqlite3.SQLITE_DBCONFIG_DQS_DML) is False
+        assert conn.getconfig(sqlite3.SQLITE_DBCONFIG_DQS_DDL) is False
+    finally:
+        conn.close()

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from config import ModelConfig, load_model_config
 from sql_guard import (
     GuardConfig,
+    check_sql,
     load_guard_config,
     open_readonly_plain,
     run_readonly_query,
@@ -24,7 +25,7 @@ class SQLResponse(BaseModel):
 
 
 class DataAccessLayer:
-    """Abstract base for swapping direct DB vs MCP-routed access."""
+    """Abstract data-access layer (only direct DB access exists)."""
 
     async def execute(
         self, natural_query: str
@@ -60,7 +61,6 @@ class EnhancedQueryAssistant:
         self,
         db_path: str,
         openai_api_key: str,
-        use_mcp: bool = False,
         guard_config: GuardConfig | None = None,
         model_config: ModelConfig | None = None,
     ):
@@ -81,14 +81,15 @@ class EnhancedQueryAssistant:
             self.collection = self.chroma_client.create_collection(name="query_history")
 
         self.schema = self._get_db_schema()
-        self.data_layer: DataAccessLayer = DirectDBLayer(self) if not use_mcp else None
+        self.data_layer: DataAccessLayer = DirectDBLayer(self)
 
     def _execute_direct(
         self, natural_query: str
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         start = time.time()
         similar_queries = self._find_similar_queries(natural_query)
-        sql_query = self._generate_sql(natural_query)
+        # check_sql is idempotent; it returns the exact statement that runs.
+        sql_query = check_sql(self._generate_sql(natural_query))
 
         columns, rows, truncated = run_readonly_query(
             self.db_path, sql_query, self.guard_config
@@ -96,6 +97,7 @@ class EnhancedQueryAssistant:
         result_df = pd.DataFrame.from_records(rows, columns=columns)
         result_df.attrs["truncated"] = truncated
         result_df.attrs["row_cap"] = self.guard_config.row_cap
+        result_df.attrs["sql_query"] = sql_query
 
         latency_ms = round((time.time() - start) * 1000, 2)
         metadata = {
@@ -179,7 +181,7 @@ Respond with ONLY valid SQL. No explanations."""
             response_format=SQLResponse,
         )
         # Q12: keep the alias as the default, but log the model the API ran.
-        logger.info("model response id=%s", getattr(response, "model", None))
+        logger.info("response model=%s", getattr(response, "model", None))
         return response.choices[0].message.parsed.sql_query.strip()
 
     def execute_query(
@@ -189,7 +191,8 @@ Respond with ONLY valid SQL. No explanations."""
 
         Returns (results, similar_queries). results.attrs["truncated"] is True
         when the result hit the row cap (results.attrs["row_cap"]) and later
-        rows were dropped; see is_truncated().
+        rows were dropped; see is_truncated(). results.attrs["sql_query"] is
+        the SQL that was executed.
         """
         if self.data_layer is not None:
             import asyncio

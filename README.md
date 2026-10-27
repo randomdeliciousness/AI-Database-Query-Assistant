@@ -31,3 +31,5 @@ streamlit run streamlit_app.py
 ```
 
 Environment variables take precedence over .streamlit/secrets.toml.
+
+**Limitations:** the app and API query only the bundled Chinook sample database. An OpenAI API key is required, and every question is a model call. Generated SQL is checked for safety, not for correctness. The read-only SQL guard is defense in depth (41 of 41 red-team cases blocked by `tests/test_sql_guard.py`, measured at commit `e9d5eeed`), not a guarantee. Results stop at a row cap (10,000 rows by default) and the app says when that happens.

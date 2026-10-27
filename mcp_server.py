@@ -4,28 +4,31 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from config import load_cors_origins, load_secrets_file, secrets_section
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
 
 app = FastAPI(
-    title="AI Database Query Assistant MCP Server",
+    title="AI Database Query Assistant JSON-RPC API",
     description=(
-        "MCP-compliant server for natural-language SQL queries. "
-        "Proxy this endpoint through Runlayer for enterprise security, "
-        "ABAC permissions, threat detection, audit logs, and observability."
+        "FastAPI JSON-RPC endpoint (`/mcp`) for natural-language SQL queries. "
+        "Not a full MCP implementation."
     ),
     version="2.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production
-    allow_credentials=True,
+    # Env ADQ_CORS_ORIGINS, then [api] cors_origins in .streamlit/secrets.toml,
+    # then localhost only. No cookies or auth headers are accepted cross-origin.
+    allow_origins=load_cors_origins(secrets_section(load_secrets_file(), "api")),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -58,21 +61,23 @@ class MCPResponse(BaseModel):
 
 
 def build_query_result(df, similar: list[dict[str, Any]]) -> dict[str, Any]:
-    """JSON-RPC result body for one query. truncated is True at the row cap."""
+    """JSON-RPC result body for one query.
+
+    truncated is True at the row cap; sql_query is the SQL that was executed.
+    """
     return {
         "results": df.to_dict(orient="records"),
         "row_count": len(df),
         "truncated": is_truncated(df),
         "similar_queries": similar,
-        "sql_query": "Generated internally (visible in Runlayer audit logs)",
+        "sql_query": df.attrs.get("sql_query"),
         "status": "success",
-        "mcp_version": "2.0",
     }
 
 
 @app.post("/mcp")
 async def mcp_endpoint(request: MCPRequest):
-    """MCP-compliant JSON-RPC endpoint (Runlayer proxy target)."""
+    """JSON-RPC endpoint; not a full MCP implementation."""
     if request.method != "natural_language_query":
         raise HTTPException(400, "Only natural_language_query method supported")
 
@@ -82,7 +87,9 @@ async def mcp_endpoint(request: MCPRequest):
 
     try:
         assistant = get_assistant()
-        df, similar = assistant.execute_query(natural_query)
+        # execute_query is synchronous (it runs its own asyncio.run), so it runs
+        # in a worker thread, not inside this event loop.
+        df, similar = await run_in_threadpool(assistant.execute_query, natural_query)
         result = build_query_result(df, similar)
 
         logger.info(f"MCP query processed: {natural_query[:50]}...")
@@ -95,13 +102,10 @@ async def mcp_endpoint(request: MCPRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "mcp_ready": True, "runlayer_compatible": True}
+    return {"status": "healthy"}
 
 
 if __name__ == "__main__":
-    print("🚀 Starting MCP Server (Runlayer-ready)")
+    print("🚀 Starting JSON-RPC API")
     print("→ Local: http://localhost:8000/mcp")
-    print(
-        "→ Runlayer: Add this URL to your Private Catalog → instant enterprise security"
-    )
     uvicorn.run(app, host="0.0.0.0", port=8000)

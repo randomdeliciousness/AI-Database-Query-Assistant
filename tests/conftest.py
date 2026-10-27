@@ -28,6 +28,7 @@ _ADQ_CONFIG_ENV = (
     "ADQ_SQL_STEP_BUDGET",
     "ADQ_SQL_ROW_CAP",
     "ADQ_SQL_TIMEOUT_S",
+    "ADQ_CORS_ORIGINS",
 )
 
 _REDTEAM_KEY = pytest.StashKey[dict]()

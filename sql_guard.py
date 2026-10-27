@@ -200,8 +200,15 @@ def _ro_uri(db_path: str | os.PathLike) -> str:
 
 
 def open_readonly_plain(db_path: str | os.PathLike) -> sqlite3.Connection:
-    """mode=ro plus query_only, no authorizer. For internal schema reads only."""
+    """mode=ro plus query_only, no authorizer. For internal schema reads only.
+
+    Double-quoted string literals are turned off (DQS_DML and DQS_DDL), so
+    "Smith" is always an identifier and an unknown one is an error instead
+    of silently matching as the string 'Smith'.
+    """
     conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+    conn.setconfig(sqlite3.SQLITE_DBCONFIG_DQS_DML, False)
+    conn.setconfig(sqlite3.SQLITE_DBCONFIG_DQS_DDL, False)
     conn.execute("PRAGMA query_only = ON")
     return conn
 

@@ -3,10 +3,13 @@
 import pytest
 
 from config import (
+    DEFAULT_CORS_ORIGINS,
     DEFAULT_MODEL_ID,
     ModelConfig,
+    load_cors_origins,
     load_model_config,
     load_openai_api_key,
+    load_secrets_file,
     secrets_section,
 )
 
@@ -92,3 +95,42 @@ def test_api_key_both_env_wins(monkeypatch):
     assert load_openai_api_key({"api_key": "test-not-a-key-secrets"}) == (
         "test-not-a-key-env"
     )
+
+
+def test_cors_default_is_localhost_only():
+    origins = load_cors_origins()
+    assert origins == list(DEFAULT_CORS_ORIGINS)
+    assert all(
+        o.startswith(("http://localhost:", "http://127.0.0.1:")) for o in origins
+    )
+
+
+def test_cors_from_secrets_list_or_string():
+    assert load_cors_origins({"cors_origins": ["https://a.example.com"]}) == [
+        "https://a.example.com"
+    ]
+    assert load_cors_origins(
+        {"cors_origins": "https://a.example.com, https://b.example.org"}
+    ) == ["https://a.example.com", "https://b.example.org"]
+
+
+def test_cors_env_wins_over_secrets(monkeypatch):
+    monkeypatch.setenv("ADQ_CORS_ORIGINS", "https://env.example.net")
+    assert load_cors_origins({"cors_origins": ["https://a.example.com"]}) == [
+        "https://env.example.net"
+    ]
+
+
+def test_cors_blank_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("ADQ_CORS_ORIGINS", " , ")
+    assert load_cors_origins() == list(DEFAULT_CORS_ORIGINS)
+
+
+def test_secrets_file_missing_and_present(tmp_path):
+    assert load_secrets_file(tmp_path / "nope.toml") == {}
+    f = tmp_path / "secrets.toml"
+    f.write_text('[api]\ncors_origins = ["https://a.example.com"]\n')
+    loaded = load_secrets_file(f)
+    assert load_cors_origins(secrets_section(loaded, "api")) == [
+        "https://a.example.com"
+    ]

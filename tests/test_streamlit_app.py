@@ -128,3 +128,26 @@ def test_app_key_env_wins_over_secrets(app, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-env")
     app.secrets["openai"] = {"api_key": "test-not-a-key-secrets"}
     assert _key_used(app) == "test-not-a-key-env"
+
+
+def test_sample_button_runs_the_sample(app):
+    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    at = app
+    at.run()
+    assert not at.exception
+    assert len(at.dataframe) == 0
+    sample = streamlit_app.EnhancedQueryAssistant.SAMPLE_QUERIES[2]
+    at.button(key="sample_2").click().run()
+    assert not at.exception
+    assert at.text_input(key="query").value == sample
+    assert len(at.dataframe) == 1
+    prompt = FakeOpenAI.instances[-1].completions.calls[-1]["messages"][-1]
+    assert sample in prompt["content"]
+
+
+def test_no_mcp_checkbox_or_overclaims(app):
+    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    at = app
+    at.run()
+    assert len(at.sidebar.checkbox) == 0
+    assert [c.value for c in at.caption] == ["Natural Language → SQL → Insights"]
