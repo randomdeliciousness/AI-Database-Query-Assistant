@@ -30,3 +30,4 @@ mkdir -p .streamlit && printf '[openai]\napi_key = "YOUR_OPENAI_API_KEY"\n' > .s
 streamlit run streamlit_app.py
 ```
 
+Environment variables take precedence over .streamlit/secrets.toml.

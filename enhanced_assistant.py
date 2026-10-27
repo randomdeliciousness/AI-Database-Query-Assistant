@@ -1,4 +1,5 @@
 import datetime
+import logging
 import time
 from typing import Any
 
@@ -7,12 +8,15 @@ import pandas as pd
 from openai import OpenAI
 from pydantic import BaseModel
 
+from config import ModelConfig, load_model_config
 from sql_guard import (
     GuardConfig,
     load_guard_config,
     open_readonly_plain,
     run_readonly_query,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SQLResponse(BaseModel):
@@ -58,9 +62,16 @@ class EnhancedQueryAssistant:
         openai_api_key: str,
         use_mcp: bool = False,
         guard_config: GuardConfig | None = None,
+        model_config: ModelConfig | None = None,
     ):
         self.db_path = db_path
         self.guard_config = guard_config or load_guard_config()
+        self.model_config = model_config or load_model_config()
+        logger.info(
+            "model provider=%s id=%s",
+            self.model_config.provider,
+            self.model_config.model_id,
+        )
         self.client = OpenAI(api_key=openai_api_key)
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -84,6 +95,7 @@ class EnhancedQueryAssistant:
         )
         result_df = pd.DataFrame.from_records(rows, columns=columns)
         result_df.attrs["truncated"] = truncated
+        result_df.attrs["row_cap"] = self.guard_config.row_cap
 
         latency_ms = round((time.time() - start) * 1000, 2)
         metadata = {
@@ -91,6 +103,8 @@ class EnhancedQueryAssistant:
             "execution_time": datetime.datetime.now().isoformat(),
             "latency_ms": latency_ms,
             "truncated": truncated,
+            "model_provider": self.model_config.provider,
+            "model_id": self.model_config.model_id,
         }
         self._store_query(natural_query, sql_query, metadata)
         return result_df, similar_queries
@@ -141,7 +155,7 @@ class EnhancedQueryAssistant:
         ]
 
     def _generate_sql(self, natural_query: str) -> str:
-        """2026 upgrade: gpt-4o + structured output."""
+        """Generate SQL with the configured model using structured output."""
         prompt = f"""Convert the following natural language query to SQL.
 Database Schema:
 {self.schema}
@@ -151,7 +165,7 @@ Natural language query: {natural_query}
 Respond with ONLY valid SQL. No explanations."""
 
         response = self.client.beta.chat.completions.parse(
-            model="gpt-4o",
+            model=self.model_config.model_id,
             messages=[
                 {
                     "role": "system",
@@ -164,13 +178,26 @@ Respond with ONLY valid SQL. No explanations."""
             ],
             response_format=SQLResponse,
         )
+        # Q12: keep the alias as the default, but log the model the API ran.
+        logger.info("model response id=%s", getattr(response, "model", None))
         return response.choices[0].message.parsed.sql_query.strip()
 
     def execute_query(
         self, natural_query: str
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+        """Run a natural-language query.
+
+        Returns (results, similar_queries). results.attrs["truncated"] is True
+        when the result hit the row cap (results.attrs["row_cap"]) and later
+        rows were dropped; see is_truncated().
+        """
         if self.data_layer is not None:
             import asyncio
 
             return asyncio.run(self.data_layer.execute(natural_query))
         return self._execute_direct(natural_query)
+
+
+def is_truncated(df: pd.DataFrame) -> bool:
+    """True if this result was cut at the guard's row cap."""
+    return bool(df.attrs.get("truncated", False))

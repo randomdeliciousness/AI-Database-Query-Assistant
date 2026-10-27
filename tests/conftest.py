@@ -20,6 +20,16 @@ import enhanced_assistant
 
 _LOCAL_HOSTS = (None, "localhost", "127.0.0.1", "::1")
 
+# Config env vars cleared before each test so a developer's shell cannot
+# change the defaults a test expects.
+_ADQ_CONFIG_ENV = (
+    "ADQ_MODEL_PROVIDER",
+    "ADQ_MODEL_ID",
+    "ADQ_SQL_STEP_BUDGET",
+    "ADQ_SQL_ROW_CAP",
+    "ADQ_SQL_TIMEOUT_S",
+)
+
 _REDTEAM_KEY = pytest.StashKey[dict]()
 
 
@@ -59,11 +69,13 @@ class NetworkBlockedError(OSError):
 
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch):
-    """No key, no telemetry, no outbound sockets.
+    """No key, no telemetry, no outbound sockets, no inherited ADQ_* config.
 
     A test that needs the network fails.
     """
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    for name in _ADQ_CONFIG_ENV:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANONYMIZED_TELEMETRY", "False")
 
     def _deny_connect(self, address, *args, **kwargs):
@@ -84,15 +96,20 @@ def _offline(monkeypatch):
 class FakeCompletions:
     """Stands in for client.beta.chat.completions; returns a scripted SQL string."""
 
+    default_sql: ClassVar[str] = "SELECT 1"
+    # Model name the fake API reports back; None echoes the requested model.
+    response_model: ClassVar[str | None] = None
+
     def __init__(self):
-        self.sql = "SELECT 1"
+        self.sql = self.default_sql
         self.calls = []
 
     def parse(self, **kwargs):
         self.calls.append(kwargs)
         parsed = SimpleNamespace(sql_query=self.sql)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed))]
+            model=self.response_model or kwargs.get("model"),
+            choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed))],
         )
 
 

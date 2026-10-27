@@ -403,10 +403,13 @@ def test_schema_quotes_table_names(tmp_path):
 
 
 def _fake_assistant(db, sql):
+    from config import ModelConfig
+
     stored = []
     return SimpleNamespace(
         db_path=str(db),
         guard_config=TEST_CONFIG,
+        model_config=ModelConfig(),
         _find_similar_queries=lambda q: [],
         _generate_sql=lambda q: sql,
         _store_query=lambda q, s, m: stored.append(m),

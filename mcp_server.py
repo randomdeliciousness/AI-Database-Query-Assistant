@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from enhanced_assistant import EnhancedQueryAssistant
+from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
@@ -57,6 +57,19 @@ class MCPResponse(BaseModel):
     id: Any = None
 
 
+def build_query_result(df, similar: list[dict[str, Any]]) -> dict[str, Any]:
+    """JSON-RPC result body for one query. truncated is True at the row cap."""
+    return {
+        "results": df.to_dict(orient="records"),
+        "row_count": len(df),
+        "truncated": is_truncated(df),
+        "similar_queries": similar,
+        "sql_query": "Generated internally (visible in Runlayer audit logs)",
+        "status": "success",
+        "mcp_version": "2.0",
+    }
+
+
 @app.post("/mcp")
 async def mcp_endpoint(request: MCPRequest):
     """MCP-compliant JSON-RPC endpoint (Runlayer proxy target)."""
@@ -70,15 +83,7 @@ async def mcp_endpoint(request: MCPRequest):
     try:
         assistant = get_assistant()
         df, similar = assistant.execute_query(natural_query)
-
-        result = {
-            "results": df.to_dict(orient="records"),
-            "row_count": len(df),
-            "similar_queries": similar,
-            "sql_query": "Generated internally (visible in Runlayer audit logs)",
-            "status": "success",
-            "mcp_version": "2.0",
-        }
+        result = build_query_result(df, similar)
 
         logger.info(f"MCP query processed: {natural_query[:50]}...")
         return MCPResponse(result=result, id=request.id)

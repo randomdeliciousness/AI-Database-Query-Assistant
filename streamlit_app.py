@@ -1,11 +1,41 @@
 import time
+from collections.abc import Mapping
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from enhanced_assistant import EnhancedQueryAssistant
+from config import load_model_config, load_openai_api_key, secrets_section
+from enhanced_assistant import EnhancedQueryAssistant, is_truncated
+from sql_guard import load_guard_config
+
+MISSING_KEY_MESSAGE = (
+    "Set OPENAI_API_KEY or [openai] api_key in .streamlit/secrets.toml"
+)
+
+
+def load_secrets() -> Mapping:
+    """st.secrets as a plain mapping, or {} when no secrets file exists."""
+    try:
+        return st.secrets.to_dict()
+    except FileNotFoundError:  # includes StreamlitSecretNotFoundError
+        return {}
+
+
+def truncation_notice(df: pd.DataFrame) -> str | None:
+    """Notice shown when the result was cut at the row cap, else None.
+
+    N is the configured row cap (df.attrs["row_cap"], set from GuardConfig),
+    not the number of rows in df.
+    """
+    if not is_truncated(df):
+        return None
+    cap = df.attrs["row_cap"]
+    return (
+        f"Results truncated at the row cap: showing the first {cap} rows only. "
+        "Totals and charts computed from these rows may be incomplete."
+    )
 
 
 def create_visualization(df: pd.DataFrame) -> go.Figure | None:
@@ -45,9 +75,17 @@ def main():
         "assistant" not in st.session_state
         or st.session_state.get("use_mcp") != use_mcp
     ):
-        openai_key = st.secrets["openai"]["api_key"]
+        secrets = load_secrets()
+        openai_key = load_openai_api_key(secrets_section(secrets, "openai"))
+        if not openai_key:
+            st.error(MISSING_KEY_MESSAGE)
+            st.stop()
         st.session_state.assistant = EnhancedQueryAssistant(
-            "chinook.db", openai_key, use_mcp=use_mcp
+            "chinook.db",
+            openai_key,
+            use_mcp=use_mcp,
+            guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
+            model_config=load_model_config(secrets_section(secrets, "model")),
         )
         st.session_state.use_mcp = use_mcp
 
@@ -74,6 +112,9 @@ def main():
 
             st.success(f"✅ Query completed in {latency} ms")
             st.subheader("📊 Query Results")
+            notice = truncation_notice(results)
+            if notice:
+                st.warning(notice, icon="⚠️")
             st.dataframe(results, use_container_width=True)
 
             fig = create_visualization(results)
