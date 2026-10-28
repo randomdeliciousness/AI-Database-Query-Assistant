@@ -77,7 +77,7 @@ jobs:
         run: docker image inspect python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 --format '{{index .RepoDigests 0}}'
 
       - name: Record base image os-release
-        run: docker run --rm python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 cat /etc/os-release
+        run: docker run --rm --network none python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 cat /etc/os-release
 
       - name: Record base image Debian license inventory
         run: |

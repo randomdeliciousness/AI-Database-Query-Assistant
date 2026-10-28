@@ -1,7 +1,5 @@
-# Base image pinned by tag only for now. The digest is pinned in the next
-# stage (python:3.13.5-slim@sha256:...), after the first CI docker-build job
-# records it with `docker image inspect`.
-FROM python:3.13.5-slim AS runtime
+# Base image pinned by digest (recorded by CI in ADQ-1b-R.1).
+FROM python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

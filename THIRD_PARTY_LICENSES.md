@@ -8,12 +8,31 @@ MPL-2.0 packages (certifi, orjson, tqdm, pathspec) are used unmodified, as publi
 
 | name | version | SPDX | URL | date |
 |---|---|---|---|---|
-| `python` Docker Official Image, tag `3.13.5-slim` | CPython 3.13.5 | PSF-2.0 (CPython); Debian base packages: recorded after first CI build | https://hub.docker.com/_/python | 2026-10-27 |
+| `python` Docker Official Image `3.13.5-slim`, pinned at digest `sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419` | CPython 3.13.5 | PSF-2.0 (CPython); Debian 12 (bookworm) base packages: see the Debian packages read by hand table below | https://hub.docker.com/_/python | 2026-10-27 |
 
-- Digest: recorded after first CI build.
-- `/etc/os-release`: recorded after first CI build.
-- Debian package license inventory (`/usr/share/doc/*/copyright`): recorded after first CI build.
+- Digest: `sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419`.
+- `/etc/os-release`: Debian GNU/Linux 12 (bookworm).
+- Debian package license inventory (`/usr/share/doc/*/copyright`): 97 copyright files; 85 carry machine-readable `License:` lines; no AGPL (the one hit, ca-certificates, matches text inside the MPL-2.0 license, not an AGPL grant); the other 12 were read by hand and are listed below.
 - pip and setuptools bundled in the image: covered by this row; versions recorded after first CI build.
+
+### Debian packages read by hand
+
+These 12 copyright files in the image have no machine-readable `License:` line, so they were read by hand on 2026-10-27 from the image at the digest above. Versions are those shipped in that image.
+
+| package | license (from `/usr/share/doc/<package>/copyright`) | date |
+|---|---|---|
+| base-files | GPL-2+ | 2026-10-27 |
+| debian-archive-keyring | Keyrings not copyrightable; remaining files GPL-2+ | 2026-10-27 |
+| gcc-12-base | GPL-3+ with the GCC Runtime Library Exception | 2026-10-27 |
+| libc-bin | LGPL-2.1+ (library), GPL-2+ (utilities) | 2026-10-27 |
+| libc6 | LGPL-2.1+ (library), GPL-2+ (utilities) | 2026-10-27 |
+| libcrypt1 | LGPL-2.1+, with some BSD-3-Clause, 0BSD and public-domain files | 2026-10-27 |
+| libgcc-s1 | Same as gcc-12-base (copyright file is a symlink to it) | 2026-10-27 |
+| libselinux1 | Public domain, with GPL-2 and LGPL-2.1 parts | 2026-10-27 |
+| libsemanage-common | LGPL-2.1+, Debian packaging GPL-2 | 2026-10-27 |
+| libsemanage2 | LGPL-2.1+, Debian packaging GPL-2 | 2026-10-27 |
+| libstdc++6 | Same as gcc-12-base (copyright file is a symlink to it) | 2026-10-27 |
+| libtasn1-6 | LGPL-2.1+ (library), GPL-3+ (tools) | 2026-10-27 |
 
 ## Runtime packages (`requirements.lock`)
 
