@@ -1,3 +1,4 @@
+import sys
 import time
 import uuid
 from collections.abc import Mapping
@@ -74,31 +75,53 @@ def _use_sample(sample: str) -> None:
     st.session_state.query = sample
 
 
+def startup_error_text(exc: BaseException) -> str:
+    """Startup failure line: the exception's class name only.
+
+    The message is never shown or printed, since it can hold paths, SQL,
+    keys or cell values.
+    """
+    return f"Startup failed: {type(exc).__name__}"
+
+
+def _init_assistant() -> None:
+    """Load config, open the DB and build the assistant into session state."""
+    secrets = load_secrets()
+    openai_key = load_openai_api_key(secrets_section(secrets, "openai"))
+    if not openai_key:
+        st.error(MISSING_KEY_MESSAGE)
+        st.stop()
+    try:
+        audit_config = load_audit_config(
+            "chinook.db", secrets_section(secrets, "audit")
+        )
+    except AuditConfigError as e:
+        st.error(str(e))
+        st.stop()
+    st.session_state.assistant = EnhancedQueryAssistant(
+        "chinook.db",
+        openai_key,
+        guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
+        model_config=load_model_config(secrets_section(secrets, "model")),
+        audit_config=audit_config,
+    )
+
+
 def main():
     st.title("🚀 AI-Powered Database Query Assistant")
     st.caption("Natural Language → SQL → Insights")
 
-    # Initialize assistant
+    # Initialize assistant. Any other startup error shows and prints only its
+    # class name. st.stop(), KeyboardInterrupt and SystemExit are
+    # BaseException, not Exception, so they pass through.
     if "assistant" not in st.session_state:
-        secrets = load_secrets()
-        openai_key = load_openai_api_key(secrets_section(secrets, "openai"))
-        if not openai_key:
-            st.error(MISSING_KEY_MESSAGE)
-            st.stop()
         try:
-            audit_config = load_audit_config(
-                "chinook.db", secrets_section(secrets, "audit")
-            )
-        except AuditConfigError as e:
-            st.error(str(e))
+            _init_assistant()
+        except Exception as e:
+            text = startup_error_text(e)
+            st.error(text)
+            print(text, file=sys.stderr)
             st.stop()
-        st.session_state.assistant = EnhancedQueryAssistant(
-            "chinook.db",
-            openai_key,
-            guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
-            model_config=load_model_config(secrets_section(secrets, "model")),
-            audit_config=audit_config,
-        )
     if st.session_state.assistant.audit.config.mode == "outcome_only":
         st.caption(OUTCOME_ONLY_CAPTION)
 

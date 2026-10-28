@@ -156,3 +156,31 @@ def test_no_mcp_checkbox_or_overclaims(app):
         "Audit log: outcomes only. "
         "Set ADQ_AUDIT_HMAC_KEY to also log hashed questions and masked SQL.",
     ]
+
+
+def test_startup_error_shows_only_the_type(app, monkeypatch, capfd, caplog):
+    # ADQ-9: a startup exception's message (paths, SQL, keys, cell values)
+    # never reaches the UI or stderr; only its class name does.
+    sentinel = "SENTINEL-sk-test-0000 /secret/path SELECT * FROM Customer"
+
+    class BoomError(RuntimeError):
+        pass
+
+    def boom(*args, **kwargs):
+        raise BoomError(sentinel)
+
+    monkeypatch.setattr("enhanced_assistant.EnhancedQueryAssistant", boom)
+    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    at = app
+    at.run()
+    assert not at.exception
+    assert [e.value for e in at.error] == ["Startup failed: BoomError"]
+    assert len(at.text_input) == 0
+    err = capfd.readouterr().err
+    assert "Startup failed: BoomError" in err
+    assert sentinel not in err
+    assert "SENTINEL" not in err
+    assert "Traceback" not in err
+    assert "streamlit_app.py" not in err
+    assert "Traceback" not in caplog.text
+    assert sentinel not in caplog.text
