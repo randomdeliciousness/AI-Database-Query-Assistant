@@ -22,7 +22,7 @@ from config import (
     ModelConfig,
     load_cors_origins,
     load_model_config,
-    load_openai_api_key,
+    load_xai_api_key,
     secrets_section,
 )
 from sql_guard import GuardConfig, GuardError, load_guard_config, run_readonly_query
@@ -106,8 +106,8 @@ def _leaves(value):
 def test_secrets_example_parses_with_empty_values_only():
     raw = EXAMPLE.read_text(encoding="utf-8")
     data = tomllib.loads(raw)
-    assert set(data) == {"openai", "model", "sql_guard", "api", "audit"}
-    assert data["openai"] == {"api_key": ""}
+    assert set(data) == {"xai", "model", "sql_guard", "api", "audit"}
+    assert data["xai"] == {"api_key": ""}
     assert data["audit"] == {"hmac_key": ""}
     assert all(v in ("", []) for v in _leaves(data))
     assert "sk-" not in raw
@@ -119,7 +119,7 @@ def test_secrets_example_values_fall_back_to_defaults():
     assert load_model_config(secrets_section(data, "model")) == ModelConfig()
     assert load_guard_config(secrets_section(data, "sql_guard")) == GuardConfig()
     assert load_cors_origins(secrets_section(data, "api")) == list(DEFAULT_CORS_ORIGINS)
-    assert load_openai_api_key(secrets_section(data, "openai")) is None
+    assert load_xai_api_key(secrets_section(data, "xai")) is None
 
 
 # README Limitations: the guard rejects some valid read-only SQL.

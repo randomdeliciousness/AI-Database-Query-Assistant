@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from conftest import FakeCompletions, FakeOpenAI
+from conftest import FakeXaiClient
 from fastapi.testclient import TestClient
 from streamlit.testing.v1 import AppTest
 
@@ -123,7 +123,7 @@ def _assistant(db, cap=100, **kw):
 
 
 def _ask(a, sql, question="q", **labels):
-    a.client.completions.sql = sql
+    a.client.scripted_sql = sql
     return a.execute_query(question, **labels)
 
 
@@ -216,7 +216,7 @@ def test_answered_row_schema_and_masking(tmp_db, key):
     assert row["row_count"] == 1
     assert row["truncated"] is False
     assert isinstance(row["steps"], int) and row["steps"] >= 0
-    assert row["model_id"] == "gpt-4o"
+    assert row["model_id"] == "grok-4.20-0309-non-reasoning"
     assert row["executed_sql_redacted"] == (
         "SELECT FirstName, Email FROM Customer WHERE LastName = ?"
     )
@@ -296,10 +296,10 @@ def test_step_budget_block_records_steps(tmp_db, key):
 def test_model_error_is_logged_without_sql(tmp_db, key, monkeypatch):
     a = _assistant(tmp_db)
 
-    def _boom(**kwargs):
+    def _boom(shape):
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr(a.client.completions, "parse", _boom)
+    monkeypatch.setattr(a.client, "parse", _boom)
     with pytest.raises(RuntimeError):
         a.execute_query("how many genres")
     row = _rows()[0]
@@ -309,7 +309,7 @@ def test_model_error_is_logged_without_sql(tmp_db, key, monkeypatch):
 
 
 def test_response_model_and_append_only_0600(tmp_db, key, monkeypatch):
-    monkeypatch.setattr(FakeCompletions, "response_model", "gpt-4o-2099-01-01")
+    monkeypatch.setattr(FakeXaiClient, "response_model", "reported-model-name")
     a = _assistant(tmp_db)
     _ask(a, "SELECT 1 AS x")
     first = _audit_path().read_text()
@@ -317,7 +317,7 @@ def test_response_model_and_append_only_0600(tmp_db, key, monkeypatch):
     text = _audit_path().read_text()
     assert text.startswith(first)
     assert len(text.splitlines()) == 2
-    assert _rows()[1]["response_model"] == "gpt-4o-2099-01-01"
+    assert _rows()[1]["response_model"] == "reported-model-name"
     assert stat.S_IMODE(_audit_path().stat().st_mode) == 0o600
 
 
@@ -352,7 +352,7 @@ def test_parse_session_id():
 @pytest.fixture
 def api(monkeypatch, tmp_db, key):
     a = _assistant(tmp_db)
-    a.client.completions.sql = SMITH_SQL
+    a.client.scripted_sql = SMITH_SQL
     monkeypatch.setattr(mcp_server, "_assistant", a)
     with TestClient(mcp_server.app) as client:
         yield client
@@ -390,7 +390,7 @@ def test_api_ignores_invalid_session_header(api):
 
 
 def test_api_error_carries_request_id(api):
-    mcp_server._assistant.client.completions.sql = "DELETE FROM Genre"
+    mcp_server._assistant.client.scripted_sql = "DELETE FROM Genre"
     body = _rpc(api).json()
     rid = body["error"]["data"]["request_id"]
     assert uuid.UUID(rid).version == 4
@@ -434,7 +434,7 @@ def test_no_key_non_chinook_refuses_to_start(tmp_path):
         message
     )
     assert KEYGEN_COMMAND in message
-    assert FakeOpenAI.instances == []
+    assert FakeXaiClient.instances == []
     assert _rows() == []
 
 
@@ -554,9 +554,9 @@ def test_audit_logger_repr_hides_key(tmp_db, key):
 def app(tmp_path, monkeypatch):
     shutil.copyfile(REPO / "chinook.db", tmp_path / "chinook.db")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(FakeCompletions, "default_sql", SMITH_SQL)
+    monkeypatch.setattr(FakeXaiClient, "default_sql", SMITH_SQL)
     at = AppTest.from_file(str(REPO / "streamlit_app.py"), default_timeout=30)
-    at.secrets["openai"] = {"api_key": "test-not-a-key"}
+    at.secrets["xai"] = {"api_key": "test-not-a-key"}
     return at
 
 
@@ -592,7 +592,7 @@ def test_app_refuses_to_start_on_non_chinook_without_key(app, tmp_path):
     )
     assert KEYGEN_COMMAND in app.error[0].value
     assert len(app.text_input) == 0
-    assert FakeOpenAI.instances == []
+    assert FakeXaiClient.instances == []
 
 
 # --- SQLite error text never reaches logs outside raw-text mode -------------
@@ -672,7 +672,7 @@ def test_api_error_log_line_has_no_message_text(
     if keyed:
         monkeypatch.setenv("ADQ_AUDIT_HMAC_KEY", secrets.token_hex(32))
     a = _assistant(tmp_db)
-    a.client.completions.sql = SMITH_ERRORS[0]
+    a.client.scripted_sql = SMITH_ERRORS[0]
     monkeypatch.setattr(mcp_server, "_assistant", a)
     with caplog.at_level("DEBUG"), TestClient(mcp_server.app) as client:
         body = _rpc(client).json()
@@ -692,7 +692,7 @@ def test_non_chinook_dqs_error_not_logged(tmp_path, key, monkeypatch, caplog, ca
         # Type only: SQLite's wording ("Smith" quoted or not) varies by version.
         with pytest.raises(sqlite3.OperationalError):
             _ask(a, 'SELECT * FROM Customer WHERE LastName = "Smith"')
-        a.client.completions.sql = 'SELECT * FROM Customer WHERE LastName = "Smith"'
+        a.client.scripted_sql = 'SELECT * FROM Customer WHERE LastName = "Smith"'
         monkeypatch.setattr(mcp_server, "_assistant", a)
         monkeypatch.setattr(mcp_server, "DB_PATH", str(db))
         with TestClient(mcp_server.app) as client:
@@ -854,13 +854,13 @@ def test_swap_fails_closed_without_key(
     _ask(a, SMITH_SQL, SMITH_QUESTION)
     SWAPS[swap](db, tmp_path)
     n = len(hash_calls)
-    calls_before = len(a.client.completions.calls)
+    calls_before = len(a.client.calls)
     with caplog.at_level("DEBUG"), pytest.raises(AuditConfigError) as excinfo:
         _ask(a, SMITH_SQL, SMITH_QUESTION)
     assert type(excinfo.value) is AuditConfigError
     assert str(excinfo.value) == REFUSAL[mode]
     assert len(hash_calls) == n + 1  # re-hashed exactly once
-    assert len(a.client.completions.calls) == calls_before  # no model call
+    assert len(a.client.calls) == calls_before  # no model call
     row = _rows()[-1]
     assert row["outcome"] == "error"
     assert row["error_class"] == "AuditConfigError"
@@ -1011,7 +1011,7 @@ def test_api_refuses_swapped_db_like_startup(tmp_path, monkeypatch, caplog):
     assert body["error"]["message"] == MISSING_KEY_MESSAGE
     assert uuid.UUID(body["error"]["data"]["request_id"]).version == 4
     assert "error_class=AuditConfigError" in caplog.text
-    assert a.client.completions.calls == []
+    assert a.client.calls == []
     assert _rows()[-1]["error_class"] == "AuditConfigError"
 
 

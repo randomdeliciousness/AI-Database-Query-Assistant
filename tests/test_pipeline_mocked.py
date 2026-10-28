@@ -1,6 +1,6 @@
 """End-to-end pipeline tests with the model and vector store mocked.
 
-The fake OpenAI client (conftest.py) returns scripted SQL, so no API key, model
+The fake xAI client (conftest.py) returns scripted SQL, so no API key, model
 call or network access is needed. Every test runs on a tmp_path copy of
 chinook.db.
 """
@@ -13,17 +13,13 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from conftest import (
-    FakeChromaClient,
-    FakeCompletions,
-    FakeOpenAI,
-    NetworkBlockedError,
-)
+from conftest import FakeChromaClient, FakeXaiClient, NetworkBlockedError
 from fastapi.testclient import TestClient
 
 import mcp_server
 from config import DEFAULT_MODEL_ID, ModelConfig
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
+from spend_meter import SpendRefused
 from sql_guard import GuardConfig, UnsafeSQLError
 
 REPO_DB = Path(__file__).resolve().parent.parent / "chinook.db"
@@ -47,23 +43,25 @@ def assistant(tmp_db):
 
 
 def _model(assistant):
-    return assistant.client.completions
+    return assistant.client
 
 
 def test_model_and_store_are_fakes(assistant):
-    assert isinstance(assistant.client, FakeOpenAI)
+    assert isinstance(assistant.client, FakeXaiClient)
     assert isinstance(assistant.chroma_client, FakeChromaClient)
-    assert "OPENAI_API_KEY" not in os.environ
+    assert "XAI_API_KEY" not in os.environ
 
 
 def test_network_is_blocked():
     with pytest.raises(NetworkBlockedError):
-        socket.create_connection(("api.openai.com", 443), timeout=1)
+        socket.create_connection(("api.x.ai", 443), timeout=1)
 
 
 def test_mocked_select_returns_dataframe(assistant, tmp_db):
     before = _snapshot(tmp_db)
-    _model(assistant).sql = "SELECT GenreId, Name FROM Genre ORDER BY GenreId LIMIT 3"
+    _model(assistant).scripted_sql = (
+        "SELECT GenreId, Name FROM Genre ORDER BY GenreId LIMIT 3"
+    )
     df, similar = assistant.execute_query("List three genres")
     assert isinstance(df, pd.DataFrame)
     assert list(df.columns) == ["GenreId", "Name"]
@@ -74,18 +72,18 @@ def test_mocked_select_returns_dataframe(assistant, tmp_db):
 
     call = _model(assistant).calls[-1]
     assert call["model"] == assistant.model_config.model_id == DEFAULT_MODEL_ID
-    assert "List three genres" in call["messages"][-1]["content"]
+    assert "List three genres" in call["messages"][-1].content[0].text
 
     stored = assistant.collection
     assert stored.documents == ["List three genres"]
-    assert stored.metadatas[0]["sql_query"] == _model(assistant).sql
+    assert stored.metadatas[0]["sql_query"] == _model(assistant).scripted_sql
     assert stored.metadatas[0]["row_count"] == 3
     assert stored.metadatas[0]["model_id"] == DEFAULT_MODEL_ID
-    assert stored.metadatas[0]["model_provider"] == "openai"
+    assert stored.metadatas[0]["model_provider"] == "xai"
 
 
 def test_history_is_returned_on_next_query(assistant):
-    _model(assistant).sql = "SELECT COUNT(*) AS n FROM Customer"
+    _model(assistant).scripted_sql = "SELECT COUNT(*) AS n FROM Customer"
     assistant.execute_query("How many customers?")
     df, similar = assistant.execute_query("Count customers")
     assert df["n"].tolist() == [59]
@@ -95,44 +93,43 @@ def test_history_is_returned_on_next_query(assistant):
 
 def test_mocked_drop_table_is_blocked(assistant, tmp_db):
     before = _snapshot(tmp_db)
-    _model(assistant).sql = "DROP TABLE Genre"
+    _model(assistant).scripted_sql = "DROP TABLE Genre"
     with pytest.raises(UnsafeSQLError):
         assistant.execute_query("Remove the genre table")
     assert _snapshot(tmp_db) == before
     assert assistant.collection.documents == []
 
 
-def test_default_model_is_gpt_4o(assistant):
-    # Default matches the behaviour before C3 (model="gpt-4o" was hard-coded).
-    assert DEFAULT_MODEL_ID == "gpt-4o"
-    _model(assistant).sql = "SELECT 1 AS x"
+def test_default_model_is_dated_grok(assistant):
+    assert DEFAULT_MODEL_ID == "grok-4.20-0309-non-reasoning"
+    _model(assistant).scripted_sql = "SELECT 1 AS x"
     assistant.execute_query("one")
-    assert _model(assistant).calls[-1]["model"] == "gpt-4o"
+    assert _model(assistant).calls[-1]["model"] == "grok-4.20-0309-non-reasoning"
 
 
 def test_model_override_via_env(monkeypatch, tmp_db):
     monkeypatch.setenv("ADQ_MODEL_ID", "test-model-env")
     a = EnhancedQueryAssistant(str(tmp_db), "dummy-key")
-    assert a.model_config == ModelConfig("openai", "test-model-env")
-    _model(a).sql = "SELECT 1 AS x"
-    a.execute_query("one")
-    assert _model(a).calls[-1]["model"] == "test-model-env"
-    assert a.collection.metadatas[-1]["model_id"] == "test-model-env"
+    assert a.model_config == ModelConfig("xai", "test-model-env")
+    with pytest.raises(SpendRefused):
+        a.execute_query("one")
+    assert a.client.calls == []
 
 
 def test_model_override_via_argument(tmp_db):
     a = EnhancedQueryAssistant(
         str(tmp_db), "dummy-key", model_config=ModelConfig(model_id="test-model-arg")
     )
-    _model(a).sql = "SELECT 1 AS x"
-    a.execute_query("one")
-    assert _model(a).calls[-1]["model"] == "test-model-arg"
+    assert a.model_config == ModelConfig("xai", "test-model-arg")
+    with pytest.raises(SpendRefused):
+        a.execute_query("one")
+    assert a.client.calls == []
 
 
 def test_model_id_logged_at_startup(tmp_db, caplog):
     with caplog.at_level("INFO", logger="enhanced_assistant"):
         EnhancedQueryAssistant(str(tmp_db), "dummy-key")
-    assert "model provider=openai id=gpt-4o" in caplog.text
+    assert "model provider=xai id=grok-4.20-0309-non-reasoning" in caplog.text
     assert "dummy-key" not in caplog.text
 
 
@@ -150,7 +147,7 @@ GENRES = "SELECT GenreId FROM Genre ORDER BY GenreId"
 
 def test_truncated_true_when_rows_exceed_cap(tmp_db):
     a = _capped(tmp_db, 5)
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     df, _ = a.execute_query("all genres")
     assert df["GenreId"].tolist() == [1, 2, 3, 4, 5]
     assert is_truncated(df) is True
@@ -161,7 +158,7 @@ def test_truncated_true_when_rows_exceed_cap(tmp_db):
 @pytest.mark.parametrize("cap", [25, 26, 1000])
 def test_truncated_false_at_or_under_cap(tmp_db, cap):
     a = _capped(tmp_db, cap)
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     df, _ = a.execute_query("all genres")
     assert len(df) == 25
     assert is_truncated(df) is False
@@ -171,7 +168,7 @@ def test_truncated_false_at_or_under_cap(tmp_db, cap):
 def test_truncated_row_cap_from_env(monkeypatch, tmp_db):
     monkeypatch.setenv("ADQ_SQL_ROW_CAP", "3")
     a = EnhancedQueryAssistant(str(tmp_db), "dummy-key")
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     df, _ = a.execute_query("all genres")
     assert len(df) == 3
     assert is_truncated(df) is True
@@ -181,7 +178,7 @@ def test_truncated_row_cap_from_env(monkeypatch, tmp_db):
 # assistant's (results, similar) return value.
 def test_api_reports_truncated(tmp_db):
     a = _capped(tmp_db, 4)
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     result = mcp_server.build_query_result(*a.execute_query("all genres"))
     assert result["row_count"] == 4
     assert len(result["results"]) == 4
@@ -191,7 +188,7 @@ def test_api_reports_truncated(tmp_db):
 
 def test_api_reports_not_truncated(tmp_db):
     a = _capped(tmp_db, 100)
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     result = mcp_server.build_query_result(*a.execute_query("all genres"))
     assert result["row_count"] == 25
     assert result["truncated"] is False
@@ -199,19 +196,19 @@ def test_api_reports_not_truncated(tmp_db):
 
 def test_response_model_is_logged(monkeypatch, tmp_db, caplog):
     # Q12: the alias stays the default; the model the API reports is logged.
-    monkeypatch.setattr(FakeCompletions, "response_model", "gpt-4o-2099-01-01")
+    monkeypatch.setattr(FakeXaiClient, "response_model", "reported-model-name")
     a = EnhancedQueryAssistant(str(tmp_db), "test-not-a-key-log")
-    _model(a).sql = "SELECT 1 AS x"
+    _model(a).scripted_sql = "SELECT 1 AS x"
     with caplog.at_level("INFO", logger="enhanced_assistant"):
         a.execute_query("one")
-    assert _model(a).calls[-1]["model"] == "gpt-4o"
-    assert "response model=gpt-4o-2099-01-01" in caplog.text
+    assert _model(a).calls[-1]["model"] == "grok-4.20-0309-non-reasoning"
+    assert "response model=reported-model-name" in caplog.text
     assert "test-not-a-key-log" not in caplog.text
 
 
 def test_executed_sql_is_on_the_result(tmp_db):
     a = _capped(tmp_db, 100)
-    _model(a).sql = "  SELECT GenreId FROM Genre LIMIT 2 ;  "
+    _model(a).scripted_sql = "  SELECT GenreId FROM Genre LIMIT 2 ;  "
     df, _ = a.execute_query("two genres")
     # The guard strips the trailing ';' and whitespace; this is what ran.
     assert df.attrs["sql_query"] == "SELECT GenreId FROM Genre LIMIT 2"
@@ -221,7 +218,7 @@ def test_executed_sql_is_on_the_result(tmp_db):
 @pytest.fixture
 def api(monkeypatch, tmp_db):
     a = _capped(tmp_db, 4)
-    _model(a).sql = GENRES
+    _model(a).scripted_sql = GENRES
     monkeypatch.setattr(mcp_server, "_assistant", a)
     with TestClient(mcp_server.app) as client:
         yield client
@@ -256,7 +253,7 @@ def test_mcp_endpoint_runs_inside_event_loop(api):
 
 
 def test_mcp_endpoint_reports_guard_block(api):
-    _model(mcp_server._assistant).sql = "DROP TABLE Genre"
+    _model(mcp_server._assistant).scripted_sql = "DROP TABLE Genre"
     response = _rpc(api, "drop it")
     assert response.status_code == 200
     assert response.json()["result"] is None

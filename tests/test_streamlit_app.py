@@ -1,7 +1,7 @@
 """Streamlit wiring: secrets fallback and the row-cap truncation notice.
 
 The app runs in-process with streamlit's AppTest (no server, no browser),
-against a tmp_path copy of chinook.db, with OpenAI and Chroma mocked.
+against a tmp_path copy of chinook.db, with the xAI client and Chroma mocked.
 """
 
 import shutil
@@ -9,11 +9,12 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from conftest import FakeCompletions, FakeOpenAI
+from conftest import FakeXaiClient
 from streamlit.errors import StreamlitSecretNotFoundError
 from streamlit.testing.v1 import AppTest
 
 import streamlit_app
+from config import DEFAULT_MODEL_ID
 
 REPO = Path(__file__).resolve().parent.parent
 GENRES = "SELECT GenreId, Name FROM Genre ORDER BY GenreId"
@@ -56,7 +57,7 @@ def test_truncation_notice_uses_row_cap_not_row_count():
 def app(tmp_path, monkeypatch):
     shutil.copyfile(REPO / "chinook.db", tmp_path / "chinook.db")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(FakeCompletions, "default_sql", GENRES)
+    monkeypatch.setattr(FakeXaiClient, "default_sql", GENRES)
     return AppTest.from_file(str(REPO / "streamlit_app.py"), default_timeout=30)
 
 
@@ -70,68 +71,70 @@ def _ask(at, question="List genres"):
 
 def test_app_shows_truncation_notice(app, monkeypatch):
     monkeypatch.setenv("ADQ_SQL_ROW_CAP", "5")
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
     at = _ask(app)
     assert [w.value for w in at.warning] == [_notice_text(5)]
     assert len(at.dataframe[0].value) == 5
 
 
 def test_app_no_notice_under_cap(app):
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
     at = _ask(app)
     assert len(at.warning) == 0
     assert len(at.dataframe[0].value) == 25
 
 
 def test_app_reads_model_and_limits_from_secrets(app):
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
-    app.secrets["model"] = {"model_id": "test-model-secrets"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
+    app.secrets["model"] = {"model_id": DEFAULT_MODEL_ID}
     app.secrets["sql_guard"] = {"row_cap": 3}
     at = _ask(app)
     assert len(at.dataframe[0].value) == 3
     assert [w.value for w in at.warning] == [_notice_text(3)]
-    fake = FakeOpenAI.instances[-1]
+    fake = FakeXaiClient.instances[-1]
     assert fake.api_key == "test-not-a-key"
-    assert fake.completions.calls[-1]["model"] == "test-model-secrets"
+    call = fake.calls[-1]
+    assert call["max_tokens"] == 1024
+    assert call["model"] == DEFAULT_MODEL_ID
 
 
 def test_app_missing_key_shows_message(app):
-    # No OPENAI_API_KEY (conftest removes it) and no [openai] secrets.
+    # No XAI_API_KEY (conftest removes it) and no [xai] secrets.
     at = app
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "Set OPENAI_API_KEY or [openai] api_key in .streamlit/secrets.toml"
+        "Set XAI_API_KEY or [xai] api_key in .streamlit/secrets.toml"
     ]
     assert len(at.text_input) == 0
-    assert FakeOpenAI.instances == []
+    assert FakeXaiClient.instances == []
 
 
 def _key_used(at):
     at.run()
     assert not at.exception
     assert len(at.error) == 0
-    return FakeOpenAI.instances[-1].api_key
+    return FakeXaiClient.instances[-1].api_key
 
 
 def test_app_key_from_env_only(app, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-env")
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key-env")
     assert _key_used(app) == "test-not-a-key-env"
 
 
 def test_app_key_from_secrets_only(app):
-    app.secrets["openai"] = {"api_key": "test-not-a-key-secrets"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key-secrets"}
     assert _key_used(app) == "test-not-a-key-secrets"
 
 
 def test_app_key_env_wins_over_secrets(app, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-env")
-    app.secrets["openai"] = {"api_key": "test-not-a-key-secrets"}
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key-env")
+    app.secrets["xai"] = {"api_key": "test-not-a-key-secrets"}
     assert _key_used(app) == "test-not-a-key-env"
 
 
 def test_sample_button_runs_the_sample(app):
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
     at = app
     at.run()
     assert not at.exception
@@ -141,12 +144,12 @@ def test_sample_button_runs_the_sample(app):
     assert not at.exception
     assert at.text_input(key="query").value == sample
     assert len(at.dataframe) == 1
-    prompt = FakeOpenAI.instances[-1].completions.calls[-1]["messages"][-1]
-    assert sample in prompt["content"]
+    prompt = FakeXaiClient.instances[-1].calls[-1]["messages"][-1]
+    assert sample in prompt.content[0].text
 
 
 def test_no_mcp_checkbox_or_overclaims(app):
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
     at = app
     at.run()
     assert len(at.sidebar.checkbox) == 0
@@ -170,7 +173,7 @@ def test_startup_error_shows_only_the_type(app, monkeypatch, capfd, caplog):
         raise BoomError(sentinel)
 
     monkeypatch.setattr("enhanced_assistant.EnhancedQueryAssistant", boom)
-    app.secrets["openai"] = {"api_key": "test-not-a-key"}
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
     at = app
     at.run()
     assert not at.exception

@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from audit_log import AuditConfigError, load_audit_config
-from config import load_model_config, load_openai_api_key, secrets_section
+from config import load_model_config, load_xai_api_key, secrets_section
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 from sql_guard import load_guard_config
 
@@ -17,9 +17,7 @@ OUTCOME_ONLY_CAPTION = (
     "Audit log: outcomes only. "
     "Set ADQ_AUDIT_HMAC_KEY to also log hashed questions and masked SQL."
 )
-MISSING_KEY_MESSAGE = (
-    "Set OPENAI_API_KEY or [openai] api_key in .streamlit/secrets.toml"
-)
+MISSING_KEY_MESSAGE = "Set XAI_API_KEY or [xai] api_key in .streamlit/secrets.toml"
 
 
 def load_secrets() -> Mapping:
@@ -87,8 +85,8 @@ def startup_error_text(exc: BaseException) -> str:
 def _init_assistant() -> None:
     """Load config, open the DB and build the assistant into session state."""
     secrets = load_secrets()
-    openai_key = load_openai_api_key(secrets_section(secrets, "openai"))
-    if not openai_key:
+    api_key = load_xai_api_key(secrets_section(secrets, "xai"))
+    if not api_key:
         st.error(MISSING_KEY_MESSAGE)
         st.stop()
     try:
@@ -100,7 +98,7 @@ def _init_assistant() -> None:
         st.stop()
     st.session_state.assistant = EnhancedQueryAssistant(
         "chinook.db",
-        openai_key,
+        api_key,
         guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
         model_config=load_model_config(secrets_section(secrets, "model")),
         audit_config=audit_config,

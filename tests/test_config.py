@@ -8,20 +8,20 @@ from config import (
     ModelConfig,
     load_cors_origins,
     load_model_config,
-    load_openai_api_key,
     load_secrets_file,
+    load_xai_api_key,
     secrets_section,
 )
 
 
 def test_model_config_default():
-    assert load_model_config() == ModelConfig("openai", DEFAULT_MODEL_ID)
-    assert DEFAULT_MODEL_ID == "gpt-4o"
+    assert load_model_config() == ModelConfig("xai", DEFAULT_MODEL_ID)
+    assert DEFAULT_MODEL_ID == "grok-4.20-0309-non-reasoning"
 
 
 def test_model_config_from_secrets():
-    cfg = load_model_config({"provider": "openai", "model_id": "test-model-secrets"})
-    assert cfg == ModelConfig("openai", "test-model-secrets")
+    cfg = load_model_config({"provider": "xai", "model_id": "test-model-secrets"})
+    assert cfg == ModelConfig("xai", "test-model-secrets")
 
 
 def test_model_config_env_beats_secrets(monkeypatch):
@@ -30,12 +30,16 @@ def test_model_config_env_beats_secrets(monkeypatch):
     assert cfg.model_id == "test-model-env"
 
 
-def test_provider_normalised(monkeypatch):
-    monkeypatch.setenv("ADQ_MODEL_PROVIDER", " OpenAI ")
-    assert load_model_config().provider == "openai"
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(" XAI ", "xai"), (" XAI-OpenAI-Compat ", "xai-openai-compat")],
+)
+def test_provider_normalised(monkeypatch, raw, expected):
+    monkeypatch.setenv("ADQ_MODEL_PROVIDER", raw)
+    assert load_model_config().provider == expected
 
 
-@pytest.mark.parametrize("provider", ["grok", "anthropic", "other"])
+@pytest.mark.parametrize("provider", ["openai", "grok", "anthropic", "other"])
 def test_unsupported_provider_rejected(monkeypatch, provider):
     monkeypatch.setenv("ADQ_MODEL_PROVIDER", provider)
     with pytest.raises(ValueError, match="provider not supported in this version"):
@@ -48,10 +52,10 @@ def test_blank_model_id_rejected():
 
 
 def test_api_key_env_then_secrets(monkeypatch):
-    assert load_openai_api_key() is None
-    assert load_openai_api_key({"api_key": "test-not-a-key-1"}) == "test-not-a-key-1"
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-2")
-    assert load_openai_api_key({"api_key": "test-not-a-key-1"}) == "test-not-a-key-2"
+    assert load_xai_api_key() is None
+    assert load_xai_api_key({"api_key": "test-not-a-key-1"}) == "test-not-a-key-1"
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key-2")
+    assert load_xai_api_key({"api_key": "test-not-a-key-1"}) == "test-not-a-key-2"
 
 
 class _MissingSecrets:
@@ -72,27 +76,27 @@ def test_secrets_section_missing_file_gives_empty():
 def test_missing_secrets_fall_back_to_env_and_defaults(monkeypatch):
     monkeypatch.setenv("ADQ_MODEL_ID", "test-model-env")
     cfg = load_model_config(secrets_section(_MissingSecrets(), "model"))
-    assert cfg == ModelConfig("openai", "test-model-env")
-    assert load_openai_api_key(secrets_section(_MissingSecrets(), "openai")) is None
+    assert cfg == ModelConfig("xai", "test-model-env")
+    assert load_xai_api_key(secrets_section(_MissingSecrets(), "xai")) is None
 
 
 def test_api_key_env_only(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-env")
-    assert load_openai_api_key({}) == "test-not-a-key-env"
-    assert load_openai_api_key(secrets_section(_MissingSecrets(), "openai")) == (
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key-env")
+    assert load_xai_api_key({}) == "test-not-a-key-env"
+    assert load_xai_api_key(secrets_section(_MissingSecrets(), "xai")) == (
         "test-not-a-key-env"
     )
 
 
 def test_api_key_secrets_only():
-    assert load_openai_api_key({"api_key": "test-not-a-key-secrets"}) == (
+    assert load_xai_api_key({"api_key": "test-not-a-key-secrets"}) == (
         "test-not-a-key-secrets"
     )
 
 
 def test_api_key_both_env_wins(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key-env")
-    assert load_openai_api_key({"api_key": "test-not-a-key-secrets"}) == (
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key-env")
+    assert load_xai_api_key({"api_key": "test-not-a-key-secrets"}) == (
         "test-not-a-key-env"
     )
 

@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requireme
 # App files only (no tests): listed explicitly so the runtime image stays lean.
 COPY LICENSE THIRD_PARTY_LICENSES.md README.md ./
 COPY audit_log.py config.py enhanced_assistant.py mcp_client_example.py \
-     mcp_server.py sql_guard.py streamlit_app.py chinook.db ./
+     mcp_server.py spend_meter.py sql_guard.py streamlit_app.py chinook.db ./
 COPY .streamlit/secrets.example.toml .streamlit/
 
 EXPOSE 8501 8000

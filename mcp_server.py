@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from contextlib import asynccontextmanager
 from functools import partial
@@ -12,7 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from audit_log import AuditConfig, load_audit_config, parse_session_id
-from config import load_cors_origins, load_secrets_file, secrets_section
+from config import (
+    load_cors_origins,
+    load_secrets_file,
+    load_xai_api_key,
+    secrets_section,
+)
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 
 logging.basicConfig(level=logging.INFO)
@@ -60,9 +64,9 @@ _assistant: EnhancedQueryAssistant | None = None
 def get_assistant() -> EnhancedQueryAssistant:
     global _assistant
     if _assistant is None:
-        key = os.getenv("OPENAI_API_KEY")
+        key = load_xai_api_key(secrets_section(load_secrets_file(), "xai"))
         if not key:
-            raise ValueError("OPENAI_API_KEY required")
+            raise ValueError("XAI_API_KEY required")
         _assistant = EnhancedQueryAssistant(DB_PATH, key, audit_config=_audit_config)
     return _assistant
 

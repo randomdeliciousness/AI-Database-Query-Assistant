@@ -1,4 +1,4 @@
-"""Model and key configuration (ADQ-1b C3).
+"""Model, key, and spend configuration (ADQ-10).
 
 Lookup order for every value: environment variable, then the matching
 secrets mapping (for example a section of st.secrets), then the default.
@@ -6,12 +6,13 @@ This module never imports streamlit, so the API server and the tests work
 without a secrets file.
 
 Env:
-    ADQ_MODEL_PROVIDER  model provider (only "openai" in this version)
-    ADQ_MODEL_ID        model ID passed to the API (default "gpt-4o")
-    OPENAI_API_KEY      OpenAI key
+    ADQ_MODEL_PROVIDER   model provider ("xai" or "xai-openai-compat")
+    ADQ_MODEL_ID         model id passed to the API
+    ADQ_SPEND_LEDGER_PATH  JSONL spend ledger (default spend/cost_ledger.jsonl)
+    XAI_API_KEY          xAI key
 Secrets (st.secrets layout):
     [model]   provider, model_id
-    [openai]  api_key
+    [xai]     api_key
     [sql_guard] step_budget, row_cap, timeout_s (read by sql_guard)
     [api]     cors_origins (list of origins for the JSON-RPC API)
 Env ADQ_CORS_ORIGINS: comma-separated origins for the JSON-RPC API.
@@ -21,11 +22,12 @@ import os
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
-DEFAULT_PROVIDER = "openai"
-DEFAULT_MODEL_ID = "gpt-4o"
-SUPPORTED_PROVIDERS = ("openai",)
+DEFAULT_PROVIDER = "xai"
+DEFAULT_MODEL_ID = "grok-4.20-0309-non-reasoning"
+SUPPORTED_PROVIDERS = ("xai", "xai-openai-compat")
 DEFAULT_SECRETS_PATH = ".streamlit/secrets.toml"
 # Browser origins allowed to call the JSON-RPC API: localhost only by default
 # (the API on :8000 and the Streamlit app on :8501).
@@ -35,6 +37,23 @@ DEFAULT_CORS_ORIGINS = (
     "http://localhost:8501",
     "http://127.0.0.1:8501",
 )
+
+# Dated xAI list prices. The meter, not ModelConfig, refuses an id with no row.
+PRICES_AS_OF = "2026-10-28"
+PRICE_SOURCE = "https://docs.x.ai/docs/models"
+MODEL_PRICES: dict[str, dict[str, Decimal]] = {
+    "grok-4.20-0309-non-reasoning": {
+        "prompt": Decimal("1.25"),
+        "cached_prompt": Decimal("0.20"),
+        "completion": Decimal("2.50"),
+    }
+}
+BUDGET_USD = Decimal("9")
+DEFAULT_MAX_TOKENS = 1024
+REQUEST_TIMEOUT_S = 60
+MAX_PROMPT_TOKENS = 200_000
+CHARS_PER_TOKEN = 2
+DEFAULT_LEDGER_PATH = "spend/cost_ledger.jsonl"
 
 
 @dataclass(frozen=True)
@@ -81,13 +100,18 @@ def load_model_config(secrets: Mapping | None = None) -> ModelConfig:
     return ModelConfig(provider=str(provider).strip().lower(), model_id=str(model_id))
 
 
-def load_openai_api_key(secrets: Mapping | None = None) -> str | None:
-    """Env OPENAI_API_KEY, then secrets (e.g. st.secrets["openai"]["api_key"]).
+def load_xai_api_key(secrets: Mapping | None = None) -> str | None:
+    """Env XAI_API_KEY, then secrets (e.g. st.secrets["xai"]["api_key"]).
 
     Returns None if neither is set. The key is never logged.
     """
     secrets = secrets or {}
-    return os.getenv("OPENAI_API_KEY") or secrets.get("api_key") or None
+    return os.getenv("XAI_API_KEY") or secrets.get("api_key") or None
+
+
+def load_ledger_path() -> str:
+    """Env ADQ_SPEND_LEDGER_PATH, then spend/cost_ledger.jsonl."""
+    return os.getenv("ADQ_SPEND_LEDGER_PATH") or DEFAULT_LEDGER_PATH
 
 
 def load_secrets_file(path: str | os.PathLike = DEFAULT_SECRETS_PATH) -> dict:

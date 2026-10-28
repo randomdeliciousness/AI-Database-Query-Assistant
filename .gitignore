@@ -43,6 +43,9 @@ chroma_db/
 # Audit log (local only)
 audit/
 
+# Spend ledger (local only)
+spend/
+
 # OS
 .DS_Store
 Thumbs.db

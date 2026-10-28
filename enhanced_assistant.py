@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import time
 import uuid
@@ -9,9 +10,19 @@ import chromadb
 import pandas as pd
 from openai import OpenAI
 from pydantic import BaseModel
+from xai_sdk import Client as XaiClient
+from xai_sdk.chat import system as xai_system
+from xai_sdk.chat import user as xai_user
 
 from audit_log import AuditConfig, AuditLogger, load_audit_config, schema_identifiers
-from config import ModelConfig, load_model_config
+from config import (
+    DEFAULT_MAX_TOKENS,
+    REQUEST_TIMEOUT_S,
+    ModelConfig,
+    load_ledger_path,
+    load_model_config,
+)
+from spend_meter import SpendMeter
 from sql_guard import (
     GuardConfig,
     GuardError,
@@ -23,9 +34,25 @@ from sql_guard import (
 
 logger = logging.getLogger(__name__)
 
+# Replaces the SDK default (retries on, maxAttempts 5, 1620s timeout).
+_NO_RETRY_SERVICE_CONFIG = json.dumps({"methodConfig": [{"name": [{}]}]})
+
+SQL_SYSTEM_PROMPT = "You are a SQL expert. Convert natural language to precise SQL."
+
 
 class SQLResponse(BaseModel):
     sql_query: str
+
+
+def sql_user_prompt(schema: str, natural_query: str) -> str:
+    """The user message sent to the model. Counted once by the spend meter."""
+    return f"""Convert the following natural language query to SQL.
+Database Schema:
+{schema}
+
+Natural language query: {natural_query}
+
+Respond with ONLY valid SQL. No explanations."""
 
 
 class DataAccessLayer:
@@ -64,7 +91,7 @@ class EnhancedQueryAssistant:
     def __init__(
         self,
         db_path: str,
-        openai_api_key: str,
+        api_key: str,
         guard_config: GuardConfig | None = None,
         model_config: ModelConfig | None = None,
         audit_config: AuditConfig | None = None,
@@ -84,7 +111,7 @@ class EnhancedQueryAssistant:
             self.model_config.provider,
             self.model_config.model_id,
         )
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = self._build_client(api_key)
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
         try:
@@ -94,6 +121,29 @@ class EnhancedQueryAssistant:
 
         self.schema = self._get_db_schema()
         self.data_layer: DataAccessLayer = DirectDBLayer(self)
+
+    def _build_client(self, api_key: str):
+        """One client for the configured provider. The key is not logged."""
+        provider = self.model_config.provider
+        if provider == "xai":
+            return XaiClient(
+                api_key=api_key,
+                timeout=REQUEST_TIMEOUT_S,
+                channel_options=[
+                    ("grpc.enable_retries", 0),
+                    ("grpc.service_config", _NO_RETRY_SERVICE_CONFIG),
+                ],
+            )
+        if provider == "xai-openai-compat":
+            return OpenAI(
+                api_key=api_key,
+                base_url="https://api.x.ai/v1",
+                max_retries=0,
+                timeout=REQUEST_TIMEOUT_S,
+            )
+        raise ValueError(
+            f"model provider {provider!r}: provider not supported in this version"
+        )
 
     def _execute_direct(
         self,
@@ -232,33 +282,57 @@ class EnhancedQueryAssistant:
         return self._generate(natural_query)[0]
 
     def _generate(self, natural_query: str) -> tuple[str, str | None]:
-        """(SQL, model name the API reported) for one question."""
-        prompt = f"""Convert the following natural language query to SQL.
-Database Schema:
-{self.schema}
+        """(SQL, model name the API reported) for one question.
 
-Natural language query: {natural_query}
+        The reservation is settled in ``finally`` before this returns, so a
+        later SQL-guard error cannot leave it open. SpendRefused is raised
+        by reserve and is not settled.
+        """
+        system_text = SQL_SYSTEM_PROMPT
+        prompt = sql_user_prompt(self.schema, natural_query)
+        meter = SpendMeter(load_ledger_path())
+        prompt_tokens = meter.estimate_prompt_tokens(
+            system_text
+        ) + meter.estimate_prompt_tokens(prompt)
+        reservation_id = meter.reserve(self.model_config.model_id, prompt_tokens)
+        usage = None
+        try:
+            sql, response_model, usage = self._complete(system_text, prompt)
+            return sql, response_model
+        except Exception:
+            usage = None
+            raise
+        finally:
+            meter.settle(reservation_id, usage)
 
-Respond with ONLY valid SQL. No explanations."""
-
+    def _complete(self, system_text: str, prompt: str):
+        """One completion. Returns (sql, reported model, usage or None)."""
+        model_id = self.model_config.model_id
+        if self.model_config.provider == "xai":
+            chat = self.client.chat.create(
+                model=model_id,
+                max_tokens=DEFAULT_MAX_TOKENS,
+                messages=[xai_system(system_text), xai_user(prompt)],
+            )
+            response, parsed = chat.parse(SQLResponse)
+            # Response does not proxy .model; the API name is proto.model.
+            response_model = response.proto.model
+            logger.info("response model=%s", response_model)
+            usage = getattr(response, "usage", None)
+            return parsed.sql_query.strip(), response_model, usage
         response = self.client.beta.chat.completions.parse(
-            model=self.model_config.model_id,
+            model=model_id,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a SQL expert. "
-                        "Convert natural language to precise SQL."
-                    ),
-                },
+                {"role": "system", "content": system_text},
                 {"role": "user", "content": prompt},
             ],
             response_format=SQLResponse,
+            max_tokens=DEFAULT_MAX_TOKENS,
         )
-        # Q12: keep the alias as the default, but log the model the API ran.
         response_model = getattr(response, "model", None)
         logger.info("response model=%s", response_model)
-        return response.choices[0].message.parsed.sql_query.strip(), response_model
+        sql = response.choices[0].message.parsed.sql_query.strip()
+        return sql, response_model, getattr(response, "usage", None)
 
     def execute_query(
         self,

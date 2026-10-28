@@ -1,9 +1,10 @@
 """Shared test fixtures.
 
-Every test runs offline: OPENAI_API_KEY is removed, Chroma telemetry is off,
-outbound sockets raise, and enhanced_assistant's OpenAI client and Chroma
-PersistentClient are replaced with in-memory fakes (no model call, no ONNX
-embedding download, no ./chroma_db written).
+Every test runs offline: XAI_API_KEY and OPENAI_API_KEY are removed, Chroma
+telemetry is off, outbound sockets raise, and enhanced_assistant's xAI client,
+OpenAI client and Chroma PersistentClient are replaced with in-memory fakes
+(no model call, no ONNX embedding download, no ./chroma_db written). The
+spend ledger goes to a fresh temp file, same as the audit log.
 """
 
 import os
@@ -31,6 +32,7 @@ _ADQ_CONFIG_ENV = (
     "ADQ_CORS_ORIGINS",
     "ADQ_AUDIT_HMAC_KEY",
     "ADQ_AUDIT_RAW_TEXT",
+    "ADQ_SPEND_LEDGER_PATH",
 )
 
 _REDTEAM_KEY = pytest.StashKey[dict]()
@@ -74,16 +76,19 @@ class NetworkBlockedError(OSError):
 def _offline(monkeypatch, tmp_path_factory):
     """No key, no telemetry, no outbound sockets, no inherited ADQ_* config.
 
-    A test that needs the network fails. The audit log goes to a fresh
-    per-test temp dir (outside tmp_path, so DB-directory snapshots are
-    unaffected), never to the repo's audit/.
+    A test that needs the network fails. The audit log and the spend ledger
+    each go to a fresh per-test temp dir (outside tmp_path, so DB-directory
+    snapshots are unaffected), never to the repo's audit/ or spend/.
     """
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     for name in _ADQ_CONFIG_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANONYMIZED_TELEMETRY", "False")
     audit_dir = tmp_path_factory.mktemp("audit")
     monkeypatch.setenv("ADQ_AUDIT_PATH", str(audit_dir / "adq_audit.jsonl"))
+    spend_dir = tmp_path_factory.mktemp("spend")
+    monkeypatch.setenv("ADQ_SPEND_LEDGER_PATH", str(spend_dir / "cost_ledger.jsonl"))
 
     def _deny_connect(self, address, *args, **kwargs):
         raise NetworkBlockedError(f"network access in tests is a failure: {address!r}")
@@ -110,13 +115,21 @@ class FakeCompletions:
     def __init__(self):
         self.sql = self.default_sql
         self.calls = []
+        self.usage = None
+        self.error = None
 
     def parse(self, **kwargs):
         self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
         parsed = SimpleNamespace(sql_query=self.sql)
+        reported = type(self).response_model
+        if reported is None:
+            reported = kwargs.get("model")
         return SimpleNamespace(
-            model=self.response_model or kwargs.get("model"),
+            model=reported,
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed))],
+            usage=self.usage,
         )
 
 
@@ -125,11 +138,70 @@ class FakeOpenAI:
 
     instances: ClassVar[list] = []
 
-    def __init__(self, api_key=None, **kwargs):
+    def __init__(
+        self, api_key=None, base_url=None, max_retries=None, timeout=None, **kwargs
+    ):
         self.api_key = api_key
+        self.base_url = base_url
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.extra = kwargs
         self.completions = FakeCompletions()
         self.beta = SimpleNamespace(chat=SimpleNamespace(completions=self.completions))
         FakeOpenAI.instances.append(self)
+
+
+class FakeXaiClient:
+    """Replaces xai_sdk.Client. create returns self; parse returns a pair."""
+
+    instances: ClassVar[list] = []
+    default_sql: ClassVar[str] = "SELECT 1"
+    # Name exposed as response.proto.model. None echoes the requested model.
+    response_model: ClassVar[str | None] = None
+
+    def __init__(self, api_key=None, timeout=None, channel_options=None, **kwargs):
+        self.api_key = api_key
+        self.timeout = timeout
+        self.channel_options = channel_options
+        self.extra = kwargs
+        self.chat = self
+        self.calls = []
+        self.scripted_sql = type(self).default_sql
+        self.usage = SimpleNamespace(
+            prompt_tokens=12,
+            cached_prompt_text_tokens=0,
+            completion_tokens=3,
+        )
+        self.parse_error = None
+        self._created: dict = {}
+        FakeXaiClient.instances.append(self)
+
+    def create(self, **kwargs):
+        self._created = kwargs
+        return self
+
+    def parse(self, shape):
+        created = self._created
+        model = created.get("model")
+        self.calls.append(
+            {
+                "model": model,
+                "max_tokens": created.get("max_tokens"),
+                "messages": created.get("messages"),
+                "shape": shape,
+            }
+        )
+        if self.parse_error is not None:
+            raise self.parse_error
+        reported = type(self).response_model
+        if reported is None:
+            reported = model
+        parsed = SimpleNamespace(sql_query=self.scripted_sql)
+        response = SimpleNamespace(
+            proto=SimpleNamespace(model=reported),
+            usage=self.usage,
+        )
+        return response, parsed
 
 
 class FakeCollection:
@@ -171,11 +243,18 @@ class FakeChromaClient:
 
 @pytest.fixture(autouse=True)
 def _fake_model_and_store(monkeypatch):
-    """OpenAI stays mocked in every test; Chroma is an in-memory fake."""
+    """xAI and OpenAI stay mocked in every test; Chroma is an in-memory fake."""
     FakeOpenAI.instances = []
+    FakeXaiClient.instances = []
+    FakeXaiClient.response_model = None
+    FakeXaiClient.default_sql = "SELECT 1"
+    FakeCompletions.response_model = None
+    FakeCompletions.default_sql = "SELECT 1"
     monkeypatch.setattr(enhanced_assistant, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(enhanced_assistant, "XaiClient", FakeXaiClient)
     monkeypatch.setattr(
         enhanced_assistant.chromadb, "PersistentClient", FakeChromaClient
     )
     yield
     FakeOpenAI.instances = []
+    FakeXaiClient.instances = []

@@ -10,7 +10,8 @@ REPO_DB = Path(__file__).resolve().parent.parent / "chinook.db"
 
 @pytest.fixture
 def assistant(tmp_path):
-    # OpenAI and Chroma are replaced with fakes in conftest.py; the DB is a tmp copy.
+    # The xAI client and Chroma are replaced with fakes in conftest.py.
+    # The DB is a tmp copy.
     db = tmp_path / "chinook.db"
     shutil.copyfile(REPO_DB, db)
     return EnhancedQueryAssistant(str(db), "dummy-key")

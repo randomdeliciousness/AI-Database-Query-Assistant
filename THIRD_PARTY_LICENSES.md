@@ -99,7 +99,7 @@ Installed in the runtime image and in CI.
 | opentelemetry-semantic-conventions | 0.66b1 | Apache-2.0 | https://pypi.org/project/opentelemetry-semantic-conventions/0.66b1/ | 2026-10-27 |
 | orjson | 3.13.0 | MPL-2.0 AND (Apache-2.0 OR MIT) (used unmodified) | https://pypi.org/project/orjson/3.13.0/ | 2026-10-27 |
 | overrides | 7.7.0 | Apache-2.0 | https://pypi.org/project/overrides/7.7.0/ | 2026-10-27 |
-| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | https://pypi.org/project/packaging/26.3/ | 2026-10-27 |
+| packaging | 25.0 | Apache-2.0 OR BSD-2-Clause | https://pypi.org/project/packaging/25.0/ | 2026-10-28 |
 | pandas | 3.1.0 | BSD-3-Clause | https://pypi.org/project/pandas/3.1.0/ | 2026-10-27 |
 | pillow | 13.0.0 | MIT-CMU | https://pypi.org/project/pillow/13.0.0/ | 2026-10-27 |
 | plotly | 7.1.0 | MIT | https://pypi.org/project/plotly/7.1.0/ | 2026-10-27 |
@@ -145,6 +145,7 @@ Installed in the runtime image and in CI.
 | watchfiles | 1.3.0 | MIT | https://pypi.org/project/watchfiles/1.3.0/ | 2026-10-27 |
 | websocket-client | 1.9.2 | Apache-2.0 | https://pypi.org/project/websocket-client/1.9.2/ | 2026-10-27 |
 | websockets | 17.3 | BSD-3-Clause | https://pypi.org/project/websockets/17.3/ | 2026-10-27 |
+| xai-sdk | 1.21.0 | Apache-2.0 | https://pypi.org/project/xai-sdk/1.21.0/ | 2026-10-28 |
 | yarl | 1.25.1 | Apache-2.0 | https://pypi.org/project/yarl/1.25.1/ | 2026-10-27 |
 
 ## Test and lint tools (`requirements-ci.lock`)
