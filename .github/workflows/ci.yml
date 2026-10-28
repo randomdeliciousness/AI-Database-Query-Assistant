@@ -68,15 +68,25 @@ jobs:
       - name: Build test image
         run: docker build --target test -t adq:ci-test .
 
+      # BuildKit keeps the base image in its own cache, so pull it into the
+      # local store by the digest from the build log (not the movable tag).
+      - name: Pull base image by digest
+        run: docker pull python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419
+
       - name: Record base image digest
-        run: docker image inspect python:3.13.5-slim --format '{{index .RepoDigests 0}}'
+        run: docker image inspect python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 --format '{{index .RepoDigests 0}}'
 
       - name: Record base image os-release
-        run: docker run --rm python:3.13.5-slim cat /etc/os-release
+        run: docker run --rm python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 cat /etc/os-release
 
       - name: Record base image Debian license inventory
         run: |
-          docker run --rm python:3.13.5-slim sh -c 'ls /usr/share/doc/*/copyright | wc -l; grep -l -i -E "GNU AFFERO|AGPL" /usr/share/doc/*/copyright || true'
+          docker run --rm --network none python:3.13.5-slim@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419 sh -c '
+            echo "copyright files:"; ls /usr/share/doc/*/copyright | wc -l
+            echo "AGPL hits:"; grep -l -i -E "GNU AFFERO|AGPL" /usr/share/doc/*/copyright || true
+            echo "License lines (count, name):"; grep -h "^License:" /usr/share/doc/*/copyright | sed "s/[[:space:]]*$//" | sort | uniq -c | sort -rn
+            echo "Copyright files with no License: line (read by hand):"; grep -L "^License:" /usr/share/doc/*/copyright || true
+          '
 
       - name: Runtime image has no tests
         run: docker run --rm --network none adq:ci sh -c 'test ! -e /app/tests'
