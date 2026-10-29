@@ -16,10 +16,16 @@ RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requireme
 # App files only (no tests): listed explicitly so the runtime image stays lean.
 COPY LICENSE THIRD_PARTY_LICENSES.md README.md ./
 COPY audit_log.py config.py enhanced_assistant.py mcp_client_example.py \
-     mcp_server.py spend_meter.py sql_guard.py streamlit_app.py chinook.db ./
+     mcp_server.py spend_meter.py sql_guard.py streamlit_app.py chinook.db \
+     clinic_schema.py clinic_clock.py clinic_snapshot.py clinic_generator.py ./
 COPY .streamlit/secrets.example.toml .streamlit/
 
 EXPOSE 8501 8000
+# App process. This command is the image default and it does not write the clinic DB.
+# One-shot generator (own process, WAL writer):
+#   docker run --rm --entrypoint python <image> -m clinic_generator --seed 11 --db /data/clinic.db
+# Live demo (named volume, generator has no network, app on 127.0.0.1:8501):
+#   docker compose up
 CMD ["sh", "-c", "streamlit run streamlit_app.py & uvicorn mcp_server:app --host 0.0.0.0 --port 8000"]
 
 # Test image: the runtime image plus the CI test tools and tests/. CI runs

@@ -21,6 +21,7 @@ from config import (
     DEFAULT_CORS_ORIGINS,
     ModelConfig,
     load_cors_origins,
+    load_db_path,
     load_model_config,
     load_xai_api_key,
     secrets_section,
@@ -106,7 +107,7 @@ def _leaves(value):
 def test_secrets_example_parses_with_empty_values_only():
     raw = EXAMPLE.read_text(encoding="utf-8")
     data = tomllib.loads(raw)
-    assert set(data) == {"xai", "model", "sql_guard", "api", "audit"}
+    assert set(data) == {"xai", "model", "sql_guard", "api", "audit", "database"}
     assert data["xai"] == {"api_key": ""}
     assert data["audit"] == {"hmac_key": ""}
     assert all(v in ("", []) for v in _leaves(data))
@@ -120,6 +121,7 @@ def test_secrets_example_values_fall_back_to_defaults():
     assert load_guard_config(secrets_section(data, "sql_guard")) == GuardConfig()
     assert load_cors_origins(secrets_section(data, "api")) == list(DEFAULT_CORS_ORIGINS)
     assert load_xai_api_key(secrets_section(data, "xai")) is None
+    assert load_db_path(secrets_section(data, "database")) == "chinook.db"
 
 
 # README Limitations: the guard rejects some valid read-only SQL.

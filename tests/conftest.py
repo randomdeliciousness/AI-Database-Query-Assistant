@@ -15,6 +15,10 @@ from typing import ClassVar
 
 import pytest
 
+# Drop a developer ADQ_DB_PATH before test modules import mcp_server, which
+# reads the database path once at import.
+os.environ.pop("ADQ_DB_PATH", None)
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import enhanced_assistant
@@ -33,6 +37,7 @@ _ADQ_CONFIG_ENV = (
     "ADQ_AUDIT_HMAC_KEY",
     "ADQ_AUDIT_RAW_TEXT",
     "ADQ_SPEND_LEDGER_PATH",
+    "ADQ_DB_PATH",
 )
 
 _REDTEAM_KEY = pytest.StashKey[dict]()

@@ -57,6 +57,7 @@ Installed in the runtime image and in CI.
 | click | 8.5.0 | BSD-3-Clause | https://pypi.org/project/click/8.5.0/ | 2026-10-27 |
 | durationpy | 0.11 | MIT | https://pypi.org/project/durationpy/0.11/ | 2026-10-27 |
 | fastapi | 0.162.0 | MIT | https://pypi.org/project/fastapi/0.162.0/ | 2026-10-27 |
+| faker | 40.44.0 | MIT | https://pypi.org/project/Faker/40.44.0/ | 2026-10-29 |
 | filelock | 4.2.4 | MIT | https://pypi.org/project/filelock/4.2.4/ | 2026-10-27 |
 | flatbuffers | 25.12.19 | Apache-2.0 | https://pypi.org/project/flatbuffers/25.12.19/ | 2026-10-27 |
 | frozenlist | 1.8.0 | Apache-2.0 | https://pypi.org/project/frozenlist/1.8.0/ | 2026-10-27 |

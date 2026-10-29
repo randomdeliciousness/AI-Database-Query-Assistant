@@ -9,7 +9,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from audit_log import AuditConfigError, load_audit_config
-from config import load_model_config, load_xai_api_key, secrets_section
+from clinic_schema import CLINIC_SAMPLE_QUERIES
+from config import load_db_path, load_model_config, load_xai_api_key, secrets_section
 from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 from sql_guard import load_guard_config
 
@@ -68,6 +69,12 @@ def create_visualization(df: pd.DataFrame) -> go.Figure | None:
     return None
 
 
+def sample_queries_for(is_chinook: bool) -> tuple[str, ...]:
+    if is_chinook:
+        return tuple(EnhancedQueryAssistant.SAMPLE_QUERIES)
+    return CLINIC_SAMPLE_QUERIES
+
+
 def _use_sample(sample: str) -> None:
     """Button callback: put the sample question in the query box."""
     st.session_state.query = sample
@@ -89,15 +96,14 @@ def _init_assistant() -> None:
     if not api_key:
         st.error(MISSING_KEY_MESSAGE)
         st.stop()
+    db_path = load_db_path(secrets_section(secrets, "database"))
     try:
-        audit_config = load_audit_config(
-            "chinook.db", secrets_section(secrets, "audit")
-        )
+        audit_config = load_audit_config(db_path, secrets_section(secrets, "audit"))
     except AuditConfigError as e:
         st.error(str(e))
         st.stop()
     st.session_state.assistant = EnhancedQueryAssistant(
-        "chinook.db",
+        db_path,
         api_key,
         guard_config=load_guard_config(secrets_section(secrets, "sql_guard")),
         model_config=load_model_config(secrets_section(secrets, "model")),
@@ -123,6 +129,23 @@ def main():
     if st.session_state.assistant.audit.config.mode == "outcome_only":
         st.caption(OUTCOME_ONLY_CAPTION)
 
+    is_chinook = st.session_state.assistant.audit.db_is_chinook()
+    if is_chinook:
+        query_label = "Enter your question about the music store data:"
+        query_placeholder = "e.g., Show me the top 5 customers by total purchase amount"
+        about = (
+            "Chinook sample database (digital media store). "
+            "Ask anything about sales, artists, customers, etc."
+        )
+    else:
+        query_label = "Enter your question about the synthetic vet-clinic data:"
+        query_placeholder = "Enter your question about the synthetic vet-clinic data:"
+        about = (
+            "This file is a synthetic vet-clinic simulator. "
+            "It contains no real clinic records. "
+            "The sample questions start the Supply Cost Checkup."
+        )
+
     # Audit session label: a random uuid4 per browser session, not derived
     # from the user.
     if "session_id" not in st.session_state:
@@ -130,15 +153,15 @@ def main():
 
     # Query input
     query = st.text_input(
-        "Enter your question about the music store data:",
-        placeholder="e.g., Show me the top 5 customers by total purchase amount",
+        query_label,
+        placeholder=query_placeholder,
         key="query",
     )
 
     # Sample queries
     with st.expander("📋 Sample Queries (click to run)"):
         cols = st.columns(2)
-        for i, sample in enumerate(st.session_state.assistant.SAMPLE_QUERIES):
+        for i, sample in enumerate(sample_queries_for(is_chinook)):
             cols[i % 2].button(
                 sample, key=f"sample_{i}", on_click=_use_sample, args=(sample,)
             )
@@ -179,10 +202,7 @@ def main():
             st.error(f"❌ Error: {str(e)}")
 
     with st.expander("ℹ️ About the Database"):
-        st.write(
-            "Chinook sample database (digital media store). "
-            "Ask anything about sales, artists, customers, etc."
-        )
+        st.write(about)
 
 
 if __name__ == "__main__":

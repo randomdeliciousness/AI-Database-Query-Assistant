@@ -5,6 +5,7 @@ streamlit>=1.28.0
 pandas>=2.0.0
 plotly>=5.0.0
 fastapi>=0.110.0
+Faker==40.44.0
 uvicorn>=0.29.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0

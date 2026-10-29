@@ -96,3 +96,50 @@ jobs:
           docker run --rm --network none \
             -e ANONYMIZED_TELEMETRY=False -e HF_HUB_OFFLINE=1 \
             adq:ci-test python -m pytest tests/ -q -p no:cacheprovider
+
+      # ADQ-11: both containers, no network, one read-only query while the
+      # generator is writing. Local image only. Throwaway key, not a repo secret.
+      - name: Query the clinic file while the generator writes
+        run: |
+          KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          export ADQ_AUDIT_HMAC_KEY="$KEY"
+          docker compose -f compose.yaml -f - up -d --no-build --force-recreate <<'YAML'
+          services:
+            generator:
+              image: adq:ci
+              network_mode: none
+              pull_policy: never
+            app:
+              image: adq:ci
+              network_mode: none
+              pull_policy: never
+              ports: !override []
+          YAML
+          docker compose ps --status running --services | grep -qx generator
+          docker compose ps --status running --services | grep -qx app
+          docker compose exec -T app python - <<'PY'
+          import os
+          import time
+          from audit_log import load_audit_config
+          from clinic_schema import PLANTED_CASES
+          from sql_guard import run_readonly_query
+
+          path = "/data/clinic.db"
+          case = next(c for c in PLANTED_CASES if c.id == "vaccine_not_billed")
+          deadline = time.time() + 60
+          while time.time() < deadline:
+              if os.path.exists(path):
+                  try:
+                      if load_audit_config(path).mode == "keyed_hash":
+                          break
+                  except Exception:
+                      pass
+              time.sleep(0.2)
+          else:
+              raise SystemExit("generator did not commit a readable clinic file")
+          columns, rows, truncated = run_readonly_query(path, case.sql)
+          if list(rows) != list(case.expected_rows) or truncated:
+              raise SystemExit(f"vaccine query rows={rows!r} truncated={truncated}")
+          PY
+          docker compose ps --status running --services | grep -qx generator
+          docker compose down --volumes

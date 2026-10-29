@@ -39,6 +39,9 @@ env/
 # Database
 vector_store/
 chroma_db/
+clinic.db
+*.db-wal
+*.db-shm
 
 # Audit log (local only)
 audit/

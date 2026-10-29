@@ -1,0 +1,50 @@
+# Live demo: docker compose up
+# Local tag of the Dockerfile build. No registry name, no push.
+name: adq
+
+services:
+  generator:
+    image: adq:ci
+    build:
+      context: .
+      target: runtime
+      pull: false
+    pull_policy: never
+    network_mode: none
+    volumes:
+      - clinic-data:/data
+    entrypoint: ["python"]
+    command:
+      - -m
+      - clinic_generator
+      - --seed
+      - "11"
+      - --db
+      - /data/clinic.db
+      - --follow
+    restart: "no"
+    stop_grace_period: 10s
+
+  app:
+    image: adq:ci
+    build:
+      context: .
+      target: runtime
+      pull: false
+    pull_policy: never
+    depends_on:
+      - generator
+    volumes:
+      - clinic-data:/data
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      ADQ_DB_PATH: /data/clinic.db
+      ADQ_AUDIT_HMAC_KEY: ${ADQ_AUDIT_HMAC_KEY}
+      ADQ_AUDIT_RAW_TEXT: "0"
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    restart: "no"
+
+volumes:
+  clinic-data:

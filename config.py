@@ -9,10 +9,12 @@ Env:
     ADQ_MODEL_PROVIDER   model provider ("xai" or "xai-openai-compat")
     ADQ_MODEL_ID         model id passed to the API
     ADQ_SPEND_LEDGER_PATH  JSONL spend ledger (default spend/cost_ledger.jsonl)
+    ADQ_DB_PATH          database file the app opens (default chinook.db)
     XAI_API_KEY          xAI key
 Secrets (st.secrets layout):
     [model]   provider, model_id
     [xai]     api_key
+    [database] path (file the app opens; empty uses chinook.db)
     [sql_guard] step_budget, row_cap, timeout_s (read by sql_guard)
     [api]     cors_origins (list of origins for the JSON-RPC API)
 Env ADQ_CORS_ORIGINS: comma-separated origins for the JSON-RPC API.
@@ -54,6 +56,7 @@ REQUEST_TIMEOUT_S = 60
 MAX_PROMPT_TOKENS = 200_000
 CHARS_PER_TOKEN = 2
 DEFAULT_LEDGER_PATH = "spend/cost_ledger.jsonl"
+DEFAULT_DB_PATH = "chinook.db"
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,21 @@ def load_xai_api_key(secrets: Mapping | None = None) -> str | None:
 def load_ledger_path() -> str:
     """Env ADQ_SPEND_LEDGER_PATH, then spend/cost_ledger.jsonl."""
     return os.getenv("ADQ_SPEND_LEDGER_PATH") or DEFAULT_LEDGER_PATH
+
+
+def load_db_path(secrets: Mapping | None = None) -> str:
+    """Env ADQ_DB_PATH, then secrets['path'], then chinook.db.
+
+    Does not open the file. A blank string at either layer falls through.
+    """
+    secrets = secrets or {}
+    env = os.getenv("ADQ_DB_PATH")
+    if env is not None and str(env).strip():
+        return str(env)
+    secret = secrets.get("path")
+    if secret is not None and str(secret).strip():
+        return str(secret)
+    return DEFAULT_DB_PATH
 
 
 def load_secrets_file(path: str | os.PathLike = DEFAULT_SECRETS_PATH) -> dict:

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from audit_log import AuditConfig, load_audit_config, parse_session_id
 from config import (
     load_cors_origins,
+    load_db_path,
     load_secrets_file,
     load_xai_api_key,
     secrets_section,
@@ -22,7 +23,7 @@ from enhanced_assistant import EnhancedQueryAssistant, is_truncated
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
 
-DB_PATH = "chinook.db"
+DB_PATH = load_db_path(secrets_section(load_secrets_file(), "database"))
 _audit_config: AuditConfig | None = None
 
 
