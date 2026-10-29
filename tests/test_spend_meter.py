@@ -32,7 +32,6 @@ from enhanced_assistant import (
     SQL_SYSTEM_PROMPT,
     EnhancedQueryAssistant,
     SQLResponse,
-    sql_user_prompt,
 )
 from spend_meter import SpendMeter, SpendRefused
 
@@ -89,7 +88,7 @@ def _fallback(db):
 
 
 def _prompt_tokens(assistant, question: str) -> int:
-    user = sql_user_prompt(assistant.schema, question)
+    user = assistant.render_prompt(question)
     return SpendMeter.estimate_prompt_tokens(
         SQL_SYSTEM_PROMPT
     ) + SpendMeter.estimate_prompt_tokens(user)

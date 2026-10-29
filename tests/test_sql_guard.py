@@ -412,8 +412,9 @@ def _fake_assistant(db, sql):
         guard_config=TEST_CONFIG,
         model_config=ModelConfig(),
         audit=AuditLogger(load_audit_config(db)),
+        _sync_index=lambda: None,
         _find_similar_queries=lambda q: [],
-        _generate=lambda q: (sql, None),
+        _generate=lambda q, retry=None: (sql, None),
         _store_query=lambda q, s, m: stored.append(m),
         stored=stored,
     )

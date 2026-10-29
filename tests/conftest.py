@@ -38,6 +38,11 @@ _ADQ_CONFIG_ENV = (
     "ADQ_AUDIT_RAW_TEXT",
     "ADQ_SPEND_LEDGER_PATH",
     "ADQ_DB_PATH",
+    "ADQ_CHROMA_PATH",
+    "ADQ_SCHEMA_MODE",
+    "ADQ_SEED_PAIRS",
+    "ADQ_RETRIEVAL_PARAMS",
+    "ADQ_BLOCKED_QUESTIONS",
 )
 
 _REDTEAM_KEY = pytest.StashKey[dict]()
@@ -90,10 +95,19 @@ def _offline(monkeypatch, tmp_path_factory):
     for name in _ADQ_CONFIG_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANONYMIZED_TELEMETRY", "False")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
     audit_dir = tmp_path_factory.mktemp("audit")
     monkeypatch.setenv("ADQ_AUDIT_PATH", str(audit_dir / "adq_audit.jsonl"))
     spend_dir = tmp_path_factory.mktemp("spend")
     monkeypatch.setenv("ADQ_SPEND_LEDGER_PATH", str(spend_dir / "cost_ledger.jsonl"))
+    # Empty seeds keep the first call's similar list empty. ADQ_ONNX_MODEL_DIR
+    # is left alone so the image can see the pinned model.
+    seed_file = tmp_path_factory.mktemp("seeds") / "empty.jsonl"
+    seed_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ADQ_SEED_PAIRS", str(seed_file))
+    chroma_dir = tmp_path_factory.mktemp("chroma")
+    monkeypatch.setenv("ADQ_CHROMA_PATH", str(chroma_dir))
 
     def _deny_connect(self, address, *args, **kwargs):
         raise NetworkBlockedError(f"network access in tests is a failure: {address!r}")
@@ -172,6 +186,7 @@ class FakeXaiClient:
         self.chat = self
         self.calls = []
         self.scripted_sql = type(self).default_sql
+        self.scripted_sqls = None
         self.usage = SimpleNamespace(
             prompt_tokens=12,
             cached_prompt_text_tokens=0,
@@ -201,7 +216,10 @@ class FakeXaiClient:
         reported = type(self).response_model
         if reported is None:
             reported = model
-        parsed = SimpleNamespace(sql_query=self.scripted_sql)
+        sql = self.scripted_sql
+        if self.scripted_sqls:
+            sql = self.scripted_sqls.pop(0)
+        parsed = SimpleNamespace(sql_query=sql)
         response = SimpleNamespace(
             proto=SimpleNamespace(model=reported),
             usage=self.usage,
@@ -212,8 +230,9 @@ class FakeXaiClient:
 class FakeCollection:
     """In-memory stand-in for a Chroma collection (no embedding model)."""
 
-    def __init__(self, name):
+    def __init__(self, name, metadata=None):
         self.name = name
+        self.metadata = metadata
         self.documents = []
         self.metadatas = []
         self.ids = []
@@ -223,10 +242,24 @@ class FakeCollection:
         self.metadatas.extend(metadatas)
         self.ids.extend(ids)
 
-    def query(self, query_texts, n_results=3):
+    def get(self, *args, **kwargs):
+        return {
+            "ids": list(self.ids),
+            "documents": list(self.documents),
+            "metadatas": list(self.metadatas),
+        }
+
+    def query(self, query_texts, n_results=3, include=None, **kwargs):
         docs = self.documents[-n_results:][::-1]
         metas = self.metadatas[-n_results:][::-1]
-        return {"documents": [docs], "metadatas": [metas]}
+        ids = self.ids[-n_results:][::-1]
+        distances = [0.0] * len(docs)
+        return {
+            "documents": [docs],
+            "metadatas": [metas],
+            "ids": [ids],
+            "distances": [distances],
+        }
 
 
 class FakeChromaClient:
@@ -234,15 +267,17 @@ class FakeChromaClient:
 
     def __init__(self, path=None, **kwargs):
         self.path = path
+        self.settings = kwargs.get("settings")
         self.collections = {}
+        self.is_fake = True
 
-    def get_collection(self, name):
+    def get_collection(self, name, embedding_function=None):
         if name not in self.collections:
             raise ValueError(f"Collection {name} does not exist")
         return self.collections[name]
 
-    def create_collection(self, name):
-        self.collections[name] = FakeCollection(name)
+    def create_collection(self, name, embedding_function=None, metadata=None):
+        self.collections[name] = FakeCollection(name, metadata=metadata)
         return self.collections[name]
 
 

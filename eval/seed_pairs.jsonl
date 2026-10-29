@@ -1,0 +1,16 @@
+{"id":"chinook-seed-01","db":"chinook","question":"Count album titles.","sql":"SELECT COUNT(Title) AS n FROM Album"}
+{"id":"chinook-seed-02","db":"chinook","question":"List artist ids and names.","sql":"SELECT ArtistId, Name FROM Artist"}
+{"id":"chinook-seed-03","db":"chinook","question":"Count customer fax values.","sql":"SELECT COUNT(Fax) AS n FROM Customer"}
+{"id":"chinook-seed-04","db":"chinook","question":"List employee hire dates.","sql":"SELECT HireDate FROM Employee"}
+{"id":"chinook-seed-05","db":"chinook","question":"Count invoice line quantities.","sql":"SELECT COUNT(Quantity) AS n FROM InvoiceLine"}
+{"id":"chinook-seed-06","db":"chinook","question":"List playlist ids and names.","sql":"SELECT PlaylistId, Name FROM Playlist"}
+{"id":"chinook-seed-07","db":"chinook","question":"What is the longest track duration in milliseconds?","sql":"SELECT MAX(Milliseconds) AS longest_ms FROM Track"}
+{"id":"chinook-seed-08","db":"chinook","question":"List media type ids and names.","sql":"SELECT MediaTypeId, Name FROM MediaType"}
+{"id":"clinic-seed-01","db":"clinic","question":"Count rows in the owner table.","sql":"SELECT COUNT(*) AS n FROM owner"}
+{"id":"clinic-seed-02","db":"clinic","question":"List clinician ids and roles.","sql":"SELECT clinician_id, role FROM clinician"}
+{"id":"clinic-seed-03","db":"clinic","question":"Count patient status values.","sql":"SELECT COUNT(status) AS n FROM patient"}
+{"id":"clinic-seed-04","db":"clinic","question":"List appointment start times.","sql":"SELECT starts_at FROM appointment"}
+{"id":"clinic-seed-05","db":"clinic","question":"Count recorded visit weights.","sql":"SELECT COUNT(weight_g) AS n FROM visit"}
+{"id":"clinic-seed-06","db":"clinic","question":"List invoice status values.","sql":"SELECT status FROM invoice"}
+{"id":"clinic-seed-07","db":"clinic","question":"Count products.","sql":"SELECT COUNT(*) AS n FROM product"}
+{"id":"clinic-seed-08","db":"clinic","question":"List supplier lead times.","sql":"SELECT lead_time_days FROM supplier"}

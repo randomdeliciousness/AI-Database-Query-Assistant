@@ -45,6 +45,13 @@ jobs:
           ruff check .
           black --check .
 
+      - name: License table has no PENDING entries
+        run: |
+          if grep -q "PENDING" THIRD_PARTY_LICENSES.md; then
+            echo "THIRD_PARTY_LICENSES.md still contains PENDING entries; resolve them (e.g. the ONNX in-image check date) before merging." >&2
+            exit 1
+          fi
+
       - name: Run tests
         run: |
           PYTHONPATH=. pytest tests/ --verbose -rs --junitxml=junit.xml --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0

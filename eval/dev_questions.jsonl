@@ -1,0 +1,40 @@
+{"id":"chinook-dev-01","db":"chinook","split":"dev","question":"How many rows are in the genre table?"}
+{"id":"chinook-dev-02","db":"chinook","split":"dev","question":"List the name of each artist."}
+{"id":"chinook-dev-03","db":"chinook","split":"dev","question":"How many albums are there?"}
+{"id":"chinook-dev-04","db":"chinook","split":"dev","question":"List each customer country."}
+{"id":"chinook-dev-05","db":"chinook","split":"dev","question":"How many employees are there?"}
+{"id":"chinook-dev-06","db":"chinook","split":"dev","question":"List media type names."}
+{"id":"chinook-dev-07","db":"chinook","split":"dev","question":"How many tracks are there?"}
+{"id":"chinook-dev-08","db":"chinook","split":"dev","question":"How many invoices are there?"}
+{"id":"chinook-dev-09","db":"chinook","split":"dev","question":"How many invoice lines are there?"}
+{"id":"chinook-dev-10","db":"chinook","split":"dev","question":"How many playlists are there?"}
+{"id":"chinook-dev-11","db":"chinook","split":"dev","question":"How many playlist track rows are there?"}
+{"id":"chinook-dev-12","db":"chinook","split":"dev","question":"List each album title with its artist name."}
+{"id":"chinook-dev-13","db":"chinook","split":"dev","question":"List each track name with its genre name."}
+{"id":"chinook-dev-14","db":"chinook","split":"dev","question":"List each track name with its media type name."}
+{"id":"chinook-dev-15","db":"chinook","split":"dev","question":"List each invoice line with its track name."}
+{"id":"chinook-dev-16","db":"chinook","split":"dev","question":"List each customer country and how many invoices that customer has."}
+{"id":"chinook-dev-17","db":"chinook","split":"dev","question":"List each employee and the employee they report to."}
+{"id":"chinook-dev-18","db":"chinook","split":"dev","question":"List each playlist and how many tracks it contains."}
+{"id":"chinook-dev-19","db":"chinook","split":"dev","question":"List each album and how many tracks it contains."}
+{"id":"chinook-dev-20","db":"chinook","split":"dev","question":"What is the sum of invoice totals?"}
+{"id":"clinic-dev-01","db":"clinic","split":"dev","question":"How many clinicians are there?"}
+{"id":"clinic-dev-02","db":"clinic","split":"dev","question":"How many owners are there?"}
+{"id":"clinic-dev-03","db":"clinic","split":"dev","question":"How many patients are there?"}
+{"id":"clinic-dev-04","db":"clinic","split":"dev","question":"List appointment type names."}
+{"id":"clinic-dev-05","db":"clinic","split":"dev","question":"How many appointments are there?"}
+{"id":"clinic-dev-06","db":"clinic","split":"dev","question":"How many visits are there?"}
+{"id":"clinic-dev-07","db":"clinic","split":"dev","question":"How many invoices are there?"}
+{"id":"clinic-dev-08","db":"clinic","split":"dev","question":"How many invoice lines are there?"}
+{"id":"clinic-dev-09","db":"clinic","split":"dev","question":"List product names."}
+{"id":"clinic-dev-10","db":"clinic","split":"dev","question":"How many suppliers are there?"}
+{"id":"clinic-dev-11","db":"clinic","split":"dev","question":"List each patient name with the owner name."}
+{"id":"clinic-dev-12","db":"clinic","split":"dev","question":"List each appointment with the patient name."}
+{"id":"clinic-dev-13","db":"clinic","split":"dev","question":"List each visit with the clinician name."}
+{"id":"clinic-dev-14","db":"clinic","split":"dev","question":"List each invoice with the owner name."}
+{"id":"clinic-dev-15","db":"clinic","split":"dev","question":"List each invoice line with the product name."}
+{"id":"clinic-dev-16","db":"clinic","split":"dev","question":"List each product with the appointment type that uses it."}
+{"id":"clinic-dev-17","db":"clinic","split":"dev","question":"List each delivery with the supplier name."}
+{"id":"clinic-dev-18","db":"clinic","split":"dev","question":"List each inventory lot with the product name."}
+{"id":"clinic-dev-19","db":"clinic","split":"dev","question":"List each stock use with its visit."}
+{"id":"clinic-dev-20","db":"clinic","split":"dev","question":"List each client price with the product name."}

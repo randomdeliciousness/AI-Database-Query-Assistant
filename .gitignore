@@ -43,6 +43,10 @@ clinic.db
 *.db-wal
 *.db-shm
 
+# ONNX weights. The image build downloads them. Never commit them.
+models/
+onnx.tar.gz
+
 # Audit log (local only)
 audit/
 

@@ -165,6 +165,16 @@ Installed in the test image and in CI only; not in the runtime image.
 | pytokens | 0.4.1 | MIT | https://pypi.org/project/pytokens/0.4.1/ | 2026-10-27 |
 | ruff | 0.17.3 | MIT | https://pypi.org/project/ruff/0.17.3/ | 2026-10-27 |
 
+## Pinned embedding archive
+
+Not a pip package. The image build downloads this archive in one `RUN`, checks the sha256 and the byte size, extracts it, and deletes the tarball. The archive LICENSE file was not in this checkout, so the date below is the unread-template date and the SPDX cell is the expected license.
+
+| name | version | SPDX | URL | date |
+|---|---|---|---|---|
+| all-MiniLM-L6-v2 ONNX (Chroma default embedding, archive sha256 913d7300ceae3b2dbc2c50d1de4baacab4be7b9380491c27fab7418616a16ec3) | archive | Apache-2.0 | https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz | PENDING in-image check |
+
+Expected size: 83178821 bytes.
+
 ## Notes
 
 - python-dateutil: metadata says "Dual License"; its LICENSE file covers the code under Apache-2.0 and BSD-3-Clause.

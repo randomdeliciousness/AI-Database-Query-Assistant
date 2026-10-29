@@ -5,6 +5,10 @@ audit/
 chroma_db/
 data/audit.jsonl
 data/
+# ONNX weights. The image downloads them in one RUN. Do not send them as context.
+models/
+onnx.tar.gz
+
 # VCS, caches and local environments.
 .git
 .github

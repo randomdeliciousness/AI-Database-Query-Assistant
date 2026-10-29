@@ -10,6 +10,12 @@ Env:
     ADQ_MODEL_ID         model id passed to the API
     ADQ_SPEND_LEDGER_PATH  JSONL spend ledger (default spend/cost_ledger.jsonl)
     ADQ_DB_PATH          database file the app opens (default chinook.db)
+    ADQ_CHROMA_PATH      Chroma PersistentClient path (default ./chroma_db)
+    ADQ_ONNX_MODEL_DIR   extracted ONNX directory (unset outside the image)
+    ADQ_SCHEMA_MODE      retrieval (default) or full
+    ADQ_SEED_PAIRS       seed JSONL path; empty string seeds nothing
+    ADQ_RETRIEVAL_PARAMS tuned params JSON (default eval/retrieval_params.json)
+    ADQ_BLOCKED_QUESTIONS  blocked ids and question hashes
     XAI_API_KEY          xAI key
 Secrets (st.secrets layout):
     [model]   provider, model_id
@@ -25,6 +31,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 DEFAULT_PROVIDER = "xai"
@@ -157,3 +164,60 @@ def load_cors_origins(secrets: Mapping | None = None) -> list[str]:
     items = raw.split(",") if isinstance(raw, str) else list(raw)
     origins = [str(o).strip() for o in items if str(o).strip()]
     return origins or list(DEFAULT_CORS_ORIGINS)
+
+
+def _default_repo_file(*parts: str) -> str:
+    """Default path next to this file. An env override is returned unchanged."""
+    return str(Path(__file__).resolve().parent.joinpath(*parts))
+
+
+def load_chroma_path() -> str:
+    """Env ADQ_CHROMA_PATH, then ./chroma_db. No secrets section."""
+    return os.getenv("ADQ_CHROMA_PATH") or "./chroma_db"
+
+
+def load_onnx_model_dir() -> str | None:
+    """Env ADQ_ONNX_MODEL_DIR. Unset outside the image. No secrets section."""
+    if "ADQ_ONNX_MODEL_DIR" not in os.environ:
+        return None
+    value = os.environ["ADQ_ONNX_MODEL_DIR"].strip()
+    return value or None
+
+
+def load_schema_mode() -> str:
+    """Env ADQ_SCHEMA_MODE, then ``retrieval``. Empty falls through.
+
+    The only accepted values are ``retrieval`` and ``full``.
+    """
+    raw = os.getenv("ADQ_SCHEMA_MODE", "")
+    mode = raw.strip().lower() or "retrieval"
+    if mode not in ("retrieval", "full"):
+        raise ValueError(f"ADQ_SCHEMA_MODE must be 'retrieval' or 'full', got {mode!r}")
+    return mode
+
+
+def load_seed_pairs_path() -> str:
+    """Env ADQ_SEED_PAIRS, then eval/seed_pairs.jsonl.
+
+    A set but empty value seeds nothing and does not fall through.
+    """
+    if "ADQ_SEED_PAIRS" in os.environ:
+        return os.environ["ADQ_SEED_PAIRS"]
+    return _default_repo_file("eval", "seed_pairs.jsonl")
+
+
+def load_retrieval_params_path() -> str:
+    """Env ADQ_RETRIEVAL_PARAMS, then eval/retrieval_params.json."""
+    if "ADQ_RETRIEVAL_PARAMS" in os.environ:
+        return os.environ["ADQ_RETRIEVAL_PARAMS"]
+    return _default_repo_file("eval", "retrieval_params.json")
+
+
+def load_blocked_questions_path() -> str:
+    """Env ADQ_BLOCKED_QUESTIONS, then eval/blocked.json.
+
+    A set but empty value blocks nothing and does not fall through.
+    """
+    if "ADQ_BLOCKED_QUESTIONS" in os.environ:
+        return os.environ["ADQ_BLOCKED_QUESTIONS"]
+    return _default_repo_file("eval", "blocked.json")
