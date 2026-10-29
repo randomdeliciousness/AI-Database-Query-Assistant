@@ -983,6 +983,7 @@ def test_gitignore_ignores_generated_clinic_db():
     assert "*.db" not in lines
 
 
+@pytest.mark.repo_files
 def test_dockerfile_ships_generator_entrypoint_without_changing_app_cmd():
     text = _module_text("Dockerfile")
     for name in CLINIC_MODULES:
@@ -999,6 +1000,7 @@ def test_dockerfile_ships_generator_entrypoint_without_changing_app_cmd():
     assert "ADQ_DB_PATH" not in text
 
 
+@pytest.mark.repo_files
 def test_compose_and_ci_stay_local():
     text = _module_text("compose.yaml")
     assert text.count("image: adq:ci") == 2

@@ -12,3 +12,8 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.black]
 line-length = 88
 target-version = ["py313"]
+
+[tool.pytest.ini_options]
+markers = [
+    "repo_files: reads repo files (Dockerfile, compose.yaml) not shipped in the image",
+]

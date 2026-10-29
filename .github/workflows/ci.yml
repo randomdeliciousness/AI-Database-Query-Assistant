@@ -47,7 +47,37 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=. pytest tests/ --verbose -rs --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0
+          PYTHONPATH=. pytest tests/ --verbose -rs --junitxml=junit.xml --cov=enhanced_assistant --cov=sql_guard --cov=audit_log --cov-report=term --cov-fail-under=0
+
+      - name: Assert repo-file tests ran and passed
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          NAMES = (
+              "test_dockerfile_ships_generator_entrypoint_without_changing_app_cmd",
+              "test_compose_and_ci_stay_local",
+          )
+          BLOCKING = {"failure", "error", "skipped"}
+          cases = {name: [] for name in NAMES}
+          for case in ET.parse("junit.xml").getroot().iter("testcase"):
+              name = case.get("name")
+              if name in cases:
+                  cases[name].append(case)
+          problems = []
+          for name in NAMES:
+              found = cases[name]
+              if not found:
+                  problems.append(f"{name} missing")
+                  continue
+              for case in found:
+                  tags = [child.tag for child in case if child.tag in BLOCKING]
+                  if tags:
+                      problems.append(f"{name} has {', '.join(tags)}")
+          if problems:
+              sys.exit("repo_files junit check failed: " + "; ".join(problems))
+          PY
 
   # ADQ-1b-R: build the pinned image on GitHub's runner (Policy route 2; never
   # built locally) and run the full test suite inside it with no network and
@@ -95,7 +125,7 @@ jobs:
         run: |
           docker run --rm --network none \
             -e ANONYMIZED_TELEMETRY=False -e HF_HUB_OFFLINE=1 \
-            adq:ci-test python -m pytest tests/ -q -p no:cacheprovider
+            adq:ci-test python -m pytest tests/ -q -p no:cacheprovider -m "not repo_files"
 
       # ADQ-11: both containers, no network, one read-only query while the
       # generator is writing. Local image only. Throwaway key, not a repo secret.
