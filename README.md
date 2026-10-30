@@ -36,6 +36,8 @@ Environment variables take precedence over .streamlit/secrets.toml.
 
 **Limitations:** The app and API are built for the bundled Chinook sample database. Sample DB identity is verified by sha256, not file name, and re-checked when the file's size, mtime or inode changes; an in-place edit that preserves size and mtime is not detected. Any other database needs an audit key. An xAI key is required, and every question is a model call. Generated SQL is checked for safety, not for correctness. The read-only SQL guard is defense in depth (41 of 41 red-team cases in `tests/test_sql_guard.py` are blocked; CI enforces this on every commit), not a guarantee, and it also rejects some valid read-only SQL: `EXPLAIN`, `pragma_table_info` and queries that start with `VALUES`. Results stop at a row cap (10,000 rows by default) and the app says when that happens. The prompt gets the top tables and example pairs. Example SQL is not executed. A SQLite execution error is sent back once as its own metered call. A guard block is not retried. The embedding model is the pinned ONNX file in the image.
 
+Retrieval params (`eval/retrieval_params.json`) were tuned on the dev split only (see [dev report](eval/retrieval_report_dev.md)); no generalization claim is made until F4.
+
 ## Audit log
 Every query appends one JSON line to `audit/adq_audit.jsonl` (set `ADQ_AUDIT_PATH` to move it; there is no switch to turn auditing off). A row records the outcome (`answered`, `blocked`, `truncated` or `error`), the guard's block reason, the row count, the truncated flag, the guard's step count, the model, a per-query `request_id` (also returned by the API) and an optional session ID. Result rows and cell values are never logged.
 

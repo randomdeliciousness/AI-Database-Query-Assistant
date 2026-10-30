@@ -1,0 +1,22 @@
+{
+  "cutoff": 0.75,
+  "cutoff_grid": [
+    null,
+    0.25,
+    0.35,
+    0.45,
+    0.55,
+    0.65,
+    0.75,
+    1.01
+  ],
+  "k_pairs": 3,
+  "k_tables": 5,
+  "k_tables_grid": [
+    1,
+    3,
+    5
+  ],
+  "max_distance": 0.75,
+  "objective": "maximize mean dev coverage_at_k, then mean dev recall_at_k, then smaller k_tables, then stricter cutoff (None last)"
+}

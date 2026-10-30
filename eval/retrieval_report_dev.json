@@ -1,0 +1,209 @@
+{
+  "by_db": {
+    "chinook": {
+      "coverage_at_1": 0.55,
+      "coverage_at_3": 0.95,
+      "coverage_at_5": 1.0,
+      "coverage_at_k": 1.0,
+      "n": 20,
+      "recall_at_1": 0.725,
+      "recall_at_3": 0.975,
+      "recall_at_5": 1.0
+    },
+    "clinic": {
+      "coverage_at_1": 0.45,
+      "coverage_at_3": 0.75,
+      "coverage_at_5": 0.85,
+      "coverage_at_k": 0.85,
+      "n": 20,
+      "recall_at_1": 0.6916666666666667,
+      "recall_at_3": 0.8833333333333334,
+      "recall_at_5": 0.9333333333333333
+    }
+  },
+  "clinic_content_hash": "b845161b9507434424c13a50f97f839d74a032acee89242a51ff2b25795e020c",
+  "coverage_at_1": 0.5,
+  "coverage_at_3": 0.85,
+  "coverage_at_5": 0.925,
+  "coverage_at_k": 0.925,
+  "cutoff": 0.75,
+  "grid": [
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": null,
+      "k_tables": 1,
+      "max_distance": null,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.25,
+      "k_tables": 1,
+      "max_distance": 0.25,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.35,
+      "k_tables": 1,
+      "max_distance": 0.35,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.45,
+      "k_tables": 1,
+      "max_distance": 0.45,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.55,
+      "k_tables": 1,
+      "max_distance": 0.55,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.65,
+      "k_tables": 1,
+      "max_distance": 0.65,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.75,
+      "k_tables": 1,
+      "max_distance": 0.75,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 1.01,
+      "k_tables": 1,
+      "max_distance": 1.01,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.85,
+      "cutoff": null,
+      "k_tables": 3,
+      "max_distance": null,
+      "recall_at_k": 0.9291666666666666
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.25,
+      "k_tables": 3,
+      "max_distance": 0.25,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.35,
+      "k_tables": 3,
+      "max_distance": 0.35,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.55,
+      "cutoff": 0.45,
+      "k_tables": 3,
+      "max_distance": 0.45,
+      "recall_at_k": 0.7333333333333333
+    },
+    {
+      "coverage_at_k": 0.725,
+      "cutoff": 0.55,
+      "k_tables": 3,
+      "max_distance": 0.55,
+      "recall_at_k": 0.8541666666666666
+    },
+    {
+      "coverage_at_k": 0.8,
+      "cutoff": 0.65,
+      "k_tables": 3,
+      "max_distance": 0.65,
+      "recall_at_k": 0.9041666666666666
+    },
+    {
+      "coverage_at_k": 0.85,
+      "cutoff": 0.75,
+      "k_tables": 3,
+      "max_distance": 0.75,
+      "recall_at_k": 0.9291666666666666
+    },
+    {
+      "coverage_at_k": 0.85,
+      "cutoff": 1.01,
+      "k_tables": 3,
+      "max_distance": 1.01,
+      "recall_at_k": 0.9291666666666666
+    },
+    {
+      "coverage_at_k": 0.925,
+      "cutoff": null,
+      "k_tables": 5,
+      "max_distance": null,
+      "recall_at_k": 0.9666666666666666
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.25,
+      "k_tables": 5,
+      "max_distance": 0.25,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.5,
+      "cutoff": 0.35,
+      "k_tables": 5,
+      "max_distance": 0.35,
+      "recall_at_k": 0.7083333333333333
+    },
+    {
+      "coverage_at_k": 0.55,
+      "cutoff": 0.45,
+      "k_tables": 5,
+      "max_distance": 0.45,
+      "recall_at_k": 0.7333333333333333
+    },
+    {
+      "coverage_at_k": 0.725,
+      "cutoff": 0.55,
+      "k_tables": 5,
+      "max_distance": 0.55,
+      "recall_at_k": 0.8541666666666666
+    },
+    {
+      "coverage_at_k": 0.875,
+      "cutoff": 0.65,
+      "k_tables": 5,
+      "max_distance": 0.65,
+      "recall_at_k": 0.9416666666666667
+    },
+    {
+      "coverage_at_k": 0.925,
+      "cutoff": 0.75,
+      "k_tables": 5,
+      "max_distance": 0.75,
+      "recall_at_k": 0.9666666666666666
+    },
+    {
+      "coverage_at_k": 0.925,
+      "cutoff": 1.01,
+      "k_tables": 5,
+      "max_distance": 1.01,
+      "recall_at_k": 0.9666666666666666
+    }
+  ],
+  "image_digest": "sha256:ba3fcc19ed69dd31faaca0f4eb72f561d392c06f9fbace08c3f7fc87cca59335",
+  "k_tables": 5,
+  "max_distance": 0.75,
+  "n": 40,
+  "recall_at_1": 0.7083333333333333,
+  "recall_at_3": 0.9291666666666666,
+  "recall_at_5": 0.9666666666666666,
+  "requirements_lock_sha256": "3bff36bd67d14b70280c035616a43522ffaaaa4657db001c94e85ed7c586e4db",
+  "split": "dev"
+}
