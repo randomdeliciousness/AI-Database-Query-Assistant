@@ -61,6 +61,9 @@ BUDGET_USD = Decimal("9")
 DEFAULT_MAX_TOKENS = 1024
 REQUEST_TIMEOUT_S = 60
 MAX_PROMPT_TOKENS = 200_000
+# Per-call prompt cap. Exactly this estimate is allowed. reserve() still
+# enforces MAX_PROMPT_TOKENS.
+CALL_PROMPT_TOKEN_CAP = 4_674
 CHARS_PER_TOKEN = 2
 DEFAULT_LEDGER_PATH = "spend/cost_ledger.jsonl"
 DEFAULT_DB_PATH = "chinook.db"

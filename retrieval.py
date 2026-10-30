@@ -6,6 +6,7 @@ API or the spend meter. A missing local model raises OfflineModelMissing.
 
 import hashlib
 import json
+import logging
 import math
 import sqlite3
 import uuid
@@ -21,6 +22,8 @@ from config import (
     load_seed_pairs_path,
 )
 from sql_guard import open_readonly_plain
+
+logger = logging.getLogger(__name__)
 
 # Directory the image build leaves model.onnx in. Host runs leave this unset.
 IMAGE_ONNX_DIR = "/opt/adq/models/all-MiniLM-L6-v2"
@@ -268,6 +271,29 @@ def read_jsonl(path: str | Path) -> list[dict]:
     return rows
 
 
+RETRY_FAILED_SQL_CHARS = 4_096
+RETRY_ERROR_CHARS = 500
+
+# Ticket budget of 475 tokens per pair (950 chars).
+# (4,668 − 3,248) × 2 = 2,840 chars, minus 62 formatting, = 926 = 185 + 741.
+# Three max-size pairs leave 6 tokens of headroom under 4,674.
+PAIR_QUESTION_CHARS = 185
+PAIR_SQL_CHARS = 741
+
+
+class PairLimitExceeded(ValueError):
+    """Stored user pair is over the question (185) or SQL (741) character limit."""
+
+    def __init__(self, message: str, limit: int):
+        super().__init__(message)
+        self.limit = limit
+
+
+def collapse_whitespace(text: str) -> str:
+    """Whitespace collapse shared by pair formatting, save, and retrieval."""
+    return " ".join(text.split())
+
+
 def format_tables_block(table_texts: Sequence[str]) -> str:
     body = "\n".join(table_texts) if table_texts else "(none)"
     return f"Relevant tables:\n{body}"
@@ -282,14 +308,16 @@ def format_pairs_block(pairs: Sequence[tuple[str, str]]) -> str:
         return header + "\n(none)"
     lines = [header]
     for index, (question, sql) in enumerate(pairs, start=1):
-        collapsed_q = " ".join(question.split())
-        collapsed_sql = " ".join(sql.split())
+        collapsed_q = collapse_whitespace(question)
+        collapsed_sql = collapse_whitespace(sql)
         lines.append(f"{index}. Question: {collapsed_q}")
         lines.append(f"   SQL: {collapsed_sql}")
     return "\n".join(lines)
 
 
 def format_retry_block(failed_sql: str, error_text: str) -> str:
+    failed_sql = failed_sql[:RETRY_FAILED_SQL_CHARS]
+    error_text = error_text[:RETRY_ERROR_CHARS]
     return "\n".join(
         (
             "The previous SQL failed at SQLite execution. It was not a guard block.",
@@ -351,7 +379,7 @@ def full_schema_user_prompt(
 
 def sqlite_error_text(error: BaseException) -> str:
     """One line, at most 500 characters. The audit log does not store this."""
-    return " ".join(str(error).split())[:500]
+    return " ".join(str(error).split())[:RETRY_ERROR_CHARS]
 
 
 def collection_names(ddl_hash: str) -> tuple[str, str, str]:
@@ -885,6 +913,20 @@ class SchemaIndex:
             sql = meta.get("sql_query")
             if not isinstance(sql, str):
                 continue
+            collapsed_question = collapse_whitespace(hit["text"])
+            collapsed_sql = collapse_whitespace(sql)
+            if len(collapsed_question) > PAIR_QUESTION_CHARS:
+                logger.warning(
+                    "question exceeds the %s character limit",
+                    PAIR_QUESTION_CHARS,
+                )
+                continue
+            if len(collapsed_sql) > PAIR_SQL_CHARS:
+                logger.warning(
+                    "SQL exceeds the %s character limit",
+                    PAIR_SQL_CHARS,
+                )
+                continue
             question_id = meta.get("question_id")
             found.append(
                 RetrievedPair(
@@ -916,6 +958,18 @@ class SchemaIndex:
             return False
         if question_sha256(question) in self.blocked_hashes:
             return False
+        collapsed_question = collapse_whitespace(question)
+        collapsed_sql = collapse_whitespace(sql)
+        if len(collapsed_question) > PAIR_QUESTION_CHARS:
+            raise PairLimitExceeded(
+                f"question exceeds the {PAIR_QUESTION_CHARS} character limit",
+                PAIR_QUESTION_CHARS,
+            )
+        if len(collapsed_sql) > PAIR_SQL_CHARS:
+            raise PairLimitExceeded(
+                f"SQL exceeds the {PAIR_SQL_CHARS} character limit",
+                PAIR_SQL_CHARS,
+            )
         stored = {
             key: value
             for key, value in metadata.items()

@@ -18,6 +18,7 @@ from xai_sdk.chat import user as xai_user
 
 from audit_log import AuditConfig, AuditLogger, load_audit_config, schema_identifiers
 from config import (
+    CALL_PROMPT_TOKEN_CAP,
     DEFAULT_MAX_TOKENS,
     REQUEST_TIMEOUT_S,
     ModelConfig,
@@ -27,6 +28,7 @@ from config import (
     load_schema_mode,
 )
 from retrieval import (
+    PairLimitExceeded,
     RetryContext,
     SchemaIndex,
     full_schema_user_prompt,
@@ -35,7 +37,7 @@ from retrieval import (
     retrieval_user_prompt,
     sqlite_error_text,
 )
-from spend_meter import SpendMeter
+from spend_meter import SpendMeter, SpendRefused
 from sql_guard import (
     GuardConfig,
     GuardError,
@@ -259,8 +261,15 @@ class EnhancedQueryAssistant:
             "model_id": self.model_config.model_id,
         }
         # Plain question/SQL history only while the per-query check says chinook.
+        # An over-limit pair is not saved. The result is already computed, so
+        # the limit message is a notice on the frame rather than a failure.
         if is_chinook:
-            self._store_query(natural_query, sql_query, metadata)
+            try:
+                self._store_query(natural_query, sql_query, metadata)
+            except PairLimitExceeded as exc:
+                notice = str(exc)
+                result_df.attrs["notice"] = notice
+                logger.warning("%s", notice)
         return result_df, similar_queries
 
     def _sync_index(self) -> None:
@@ -331,9 +340,11 @@ class EnhancedQueryAssistant:
     ) -> tuple[str, str | None]:
         """(SQL, model name the API reported) for one attempt.
 
-        Each attempt builds its own meter. The reservation is settled in
+        Each attempt builds its own meter. A prompt over the per-call cap
+        raises SpendRefused before reserve, so nothing is reserved and
+        ``_complete`` does not run. The reservation is settled in
         ``finally`` before this returns, so a later SQL-guard error cannot
-        leave it open. SpendRefused is raised by reserve and is not settled.
+        leave it open. SpendRefused from reserve is not settled.
         """
         system_text = SQL_SYSTEM_PROMPT
         prompt = self.render_prompt(natural_query, retry=retry)
@@ -341,6 +352,11 @@ class EnhancedQueryAssistant:
         prompt_tokens = meter.estimate_prompt_tokens(
             system_text
         ) + meter.estimate_prompt_tokens(prompt)
+        if prompt_tokens > CALL_PROMPT_TOKEN_CAP:
+            raise SpendRefused(
+                f"estimated prompt tokens {prompt_tokens} exceed the "
+                f"{CALL_PROMPT_TOKEN_CAP} token cap"
+            )
         reservation_id = meter.reserve(self.model_config.model_id, prompt_tokens)
         usage = None
         try:
@@ -395,9 +411,11 @@ class EnhancedQueryAssistant:
         when the result hit the row cap (results.attrs["row_cap"]) and later
         rows were dropped; see is_truncated(). results.attrs["sql_query"] is
         the SQL that was executed and results.attrs["request_id"] the audit
-        row's request_id. Every call writes exactly one audit row, also when
-        the query is blocked or fails. A SQLite execution error is retried
-        once; a guard block is not.
+        row's request_id. results.attrs["notice"] is set when a chinook
+        question or its executed SQL is over the stored-pair character
+        limit: the result is still returned and nothing is saved. Every call
+        writes exactly one audit row, also when the query is blocked or
+        fails. A SQLite execution error is retried once; a guard block is not.
         """
         labels = {
             "session_id": session_id,

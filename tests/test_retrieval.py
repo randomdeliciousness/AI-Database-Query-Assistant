@@ -30,17 +30,23 @@ from retrieval import (
     ONNX_MODEL_FILES,
     TABLE_K_GRID,
     OfflineModelMissing,
+    PairLimitExceeded,
+    RetryContext,
     SchemaIndex,
     Trial,
     assert_dev_split,
     assert_ids_disjoint,
+    collapse_whitespace,
     collection_names,
     coverage_at_k,
+    format_pairs_block,
+    full_schema_user_prompt,
     iter_table_documents,
     load_embedding_function,
     question_sha256,
     read_jsonl,
     recall_at_k,
+    retrieval_user_prompt,
     schema_ddl_hash,
     score_rankings,
     select_params,
@@ -1050,3 +1056,258 @@ def test_onnx_assets_are_not_tracked():
         assert not name.endswith("onnx.tar.gz"), name
         assert name != "onnx.tar.gz"
         assert not name.startswith("models/"), name
+
+
+def _select_literal(n_letters: int, *, gap: str = " ") -> str:
+    """SELECT '<letters>' with ``gap`` between SELECT and the quote."""
+    return f"SELECT{gap}'{'a' * n_letters}'"
+
+
+def _pad_last_table_to(assistant, question: str, target: int) -> None:
+    """Pad the last table document until the call estimate equals ``target``.
+
+    The system estimate is 31. Two ``x`` characters add one token.
+    """
+    assert SpendMeter.estimate_prompt_tokens(SQL_SYSTEM_PROMPT) == 31
+    current = _prompt_tokens(assistant, question)
+    assert current <= target, current
+    assistant.index.tables.documents[-1] += "x" * ((target - current) * 2)
+    assert _prompt_tokens(assistant, question) == target
+
+
+@pytest.mark.parametrize("target", [3_739, 4_674])
+def test_prompt_at_or_under_call_cap_passes(tmp_path, target):
+    assistant = _assistant(_chinook(tmp_path))
+    question = "count genres"
+    _pad_last_table_to(assistant, question, target)
+    assistant.client.scripted_sql = "SELECT 1 AS x"
+    frame, _similar = assistant.execute_query(question)
+    assert frame.iloc[0, 0] == 1
+    assert len(assistant.client.calls) == 1
+    reserved = [row for row in _ledger_rows() if row["kind"] == "reserved"]
+    assert len(reserved) == 1
+    assert reserved[0]["prompt_tokens"] == target
+
+
+def test_prompt_one_token_over_call_cap_is_refused(tmp_path):
+    assistant = _assistant(_chinook(tmp_path))
+    question = "count genres"
+    _pad_last_table_to(assistant, question, 4_675)
+    assistant.client.scripted_sql = "SELECT 1 AS x"
+    with pytest.raises(SpendRefused) as excinfo:
+        assistant.execute_query(question)
+    message = str(excinfo.value)
+    assert "4675" in message
+    assert "4674" in message
+    assert assistant.client.calls == []
+    assert [row for row in _ledger_rows() if row["kind"] == "reserved"] == []
+
+
+def test_retry_prompt_truncates_failed_sql_and_error():
+    retry = RetryContext("S" * 4_097, "E" * 501)
+    assert len(retry.failed_sql) == 4_097
+    assert len(retry.error_text) == 501
+    prompts = (
+        retrieval_user_prompt(["Table Genre:"], [], "list genres", retry),
+        full_schema_user_prompt("Table Genre:", "list genres", retry),
+    )
+    kept = f"Failed SQL:\n{'S' * 4_096}\nSQLite error:\n{'E' * 500}\n"
+    for prompt in prompts:
+        assert kept in prompt
+        assert "S" * 4_097 not in prompt
+        assert "E" * 501 not in prompt
+
+
+def test_user_pair_limits_use_collapsed_length(tmp_path):
+    assistant = _assistant(_chinook(tmp_path))
+    index = assistant.index
+    sql_741 = _select_literal(732)
+    assert len(collapse_whitespace(sql_741)) == 741
+    assert index.add_user_pair("q" * 185, sql_741, {}, allow_raw_write=True)
+    assert assistant.collection.documents[-1] == "q" * 185
+    assert assistant.collection.metadatas[-1]["sql_query"] == sql_741
+
+    stored = len(assistant.collection.documents)
+    with pytest.raises(PairLimitExceeded) as question_limit:
+        index.add_user_pair("q" * 186, sql_741, {}, allow_raw_write=True)
+    assert isinstance(question_limit.value, PairLimitExceeded)
+    assert question_limit.value.limit == 185
+    assert len(assistant.collection.documents) == stored
+    assert "q" * 186 not in assistant.collection.documents
+
+    raw_q = "q" * 183 + "  x"
+    assert len(raw_q) > 185
+    assert len(collapse_whitespace(raw_q)) == 185
+    assert index.add_user_pair(raw_q, "SELECT 1 AS x", {}, allow_raw_write=True)
+    assert assistant.collection.documents[-1] == raw_q
+
+    wide_sql = _select_literal(732, gap="  ")
+    assert len(wide_sql) > 741
+    assert len(collapse_whitespace(wide_sql)) == 741
+    assert index.add_user_pair("short question", wide_sql, {}, allow_raw_write=True)
+    assert assistant.collection.metadatas[-1]["sql_query"] == wide_sql
+    block = format_pairs_block([(raw_q, wide_sql)])
+    assert collapse_whitespace(raw_q) in block
+    assert collapse_whitespace(wide_sql) in block
+    assert raw_q not in block
+    assert wide_sql not in block
+
+    sql_742 = _select_literal(733)
+    assert len(collapse_whitespace(sql_742)) == 742
+    stored = len(assistant.collection.documents)
+    with pytest.raises(PairLimitExceeded) as sql_limit:
+        index.add_user_pair("short question", sql_742, {}, allow_raw_write=True)
+    assert isinstance(sql_limit.value, PairLimitExceeded)
+    assert sql_limit.value.limit == 741
+    assert len(assistant.collection.documents) == stored
+    assert all(meta["sql_query"] != sql_742 for meta in assistant.collection.metadatas)
+
+
+@pytest.mark.parametrize(
+    ("question", "sql", "limit", "message"),
+    [
+        (
+            "q" * 186,
+            "SELECT 1 AS x",
+            185,
+            "question exceeds the 185 character limit",
+        ),
+        (
+            "how many genres",
+            _select_literal(733),
+            741,
+            "SQL exceeds the 741 character limit",
+        ),
+    ],
+)
+def test_add_user_pair_over_limit_raises_pair_limit_exceeded(
+    tmp_path, question, sql, limit, message
+):
+    if limit == 185:
+        assert len(collapse_whitespace(question)) == 186
+        assert len(collapse_whitespace(sql)) <= 741
+    else:
+        assert len(collapse_whitespace(question)) <= 185
+        assert len(collapse_whitespace(sql)) == 742
+    index = _assistant(_chinook(tmp_path)).index
+    with pytest.raises(PairLimitExceeded) as excinfo:
+        index.add_user_pair(question, sql, {}, allow_raw_write=True)
+    assert isinstance(excinfo.value, PairLimitExceeded)
+    assert excinfo.value.limit == limit
+    assert str(excinfo.value) == message
+
+
+def test_execute_query_does_not_match_limit_text(tmp_path, monkeypatch):
+    """A plain ValueError is not a stored-pair notice, even with the same words."""
+    assistant = _assistant(_chinook(tmp_path))
+    assistant.client.scripted_sql = "SELECT 1 AS x"
+
+    def raise_plain(*_args, **_kwargs):
+        raise ValueError("question exceeds the 185 character limit")
+
+    monkeypatch.setattr(assistant.index, "add_user_pair", raise_plain)
+    with pytest.raises(ValueError) as excinfo:
+        assistant.execute_query("count genres")
+    assert isinstance(excinfo.value, ValueError)
+    assert not isinstance(excinfo.value, PairLimitExceeded)
+
+
+def test_over_limit_pair_is_skipped_at_retrieval(tmp_path, caplog):
+    assistant = _assistant(_chinook(tmp_path))
+    ok_question = "how many genres are listed"
+    ok_sql = "SELECT COUNT(*) AS n FROM Genre"
+    over_question = "PAIRTEXT" * 40
+    over_sql = "SELECT 'PAIRSQL' AS marker"
+    assert len(collapse_whitespace(over_question)) > 185
+    assert len(collapse_whitespace(over_sql)) <= 741
+    assistant.collection.add(
+        ids=["user:ok", "user:over"],
+        documents=[ok_question, over_question],
+        metadatas=[
+            {"sql_query": ok_sql, "timestamp": "t"},
+            {"sql_query": over_sql, "timestamp": "t"},
+        ],
+    )
+    with caplog.at_level("WARNING"):
+        _tables, pairs = assistant.index.retrieve("genres", include_user=True)
+    assert [pair.question for pair in pairs] == [ok_question]
+    assert over_question not in caplog.text
+    assert over_sql not in caplog.text
+    assert "185" in caplog.text
+
+    raw_q = "q" * 183 + "  x"
+    assert len(raw_q) > 185
+    assert len(collapse_whitespace(raw_q)) == 185
+    assistant.collection.add(
+        ids=["user:collapsed"],
+        documents=[raw_q],
+        metadatas=[{"sql_query": "SELECT 1 AS y", "timestamp": "t"}],
+    )
+    _tables, pairs = assistant.index.retrieve("genres", include_user=True)
+    found = {pair.question for pair in pairs}
+    assert ok_question in found
+    assert raw_q in found
+    assert over_question not in found
+
+
+def test_three_max_pairs_estimate_at_most_4668(tmp_path):
+    assistant = _assistant(_chinook(tmp_path))
+    questions = ["q" * 184 + str(i) for i in range(3)]
+    sql = _select_literal(732)
+    for question in questions:
+        assert len(collapse_whitespace(question)) == 185
+        assert len(collapse_whitespace(sql)) == 741
+        assert assistant.index.add_user_pair(question, sql, {}, allow_raw_write=True)
+    _tables, pairs = assistant.index.retrieve("genres", include_user=True)
+    assert {pair.question for pair in pairs} == set(questions)
+    assert all(pair.sql == sql for pair in pairs)
+    assistant.client.scripted_sql = "SELECT 1 AS x"
+    frame, _similar = assistant.execute_query("count genres")
+    assert frame.iloc[0, 0] == 1
+    assert len(assistant.client.calls) == 1
+    user = _user_text(assistant.client.calls[0])
+    for question in questions:
+        assert question in user
+    assert sql in user
+    reserved = [row for row in _ledger_rows() if row["kind"] == "reserved"]
+    assert len(reserved) == 1
+    assert reserved[0]["prompt_tokens"] <= 4_668
+
+
+@pytest.mark.parametrize(
+    ("question", "sql", "notice", "cell"),
+    [
+        (
+            "q" * 186,
+            "SELECT 1 AS x",
+            "question exceeds the 185 character limit",
+            1,
+        ),
+        (
+            "how many genres",
+            "SELECT '" + "a" * 733 + "'",
+            "SQL exceeds the 741 character limit",
+            "a" * 733,
+        ),
+    ],
+)
+def test_over_limit_success_returns_result_and_notice(
+    tmp_path, caplog, question, sql, notice, cell
+):
+    assistant = _assistant(_chinook(tmp_path))
+    before_docs = list(assistant.collection.documents)
+    before_sql = [meta.get("sql_query") for meta in assistant.collection.metadatas]
+    assistant.client.scripted_sql = sql
+    with caplog.at_level("WARNING"):
+        frame, _similar = assistant.execute_query(question)
+    assert frame.iloc[0, 0] == cell
+    assert len(assistant.client.calls) == 1
+    assert assistant.collection.documents == before_docs
+    assert [meta.get("sql_query") for meta in assistant.collection.metadatas] == (
+        before_sql
+    )
+    assert frame.attrs["notice"] == notice
+    assert notice in caplog.text
+    assert "185" in notice or "741" in notice
+    marker = question if len(collapse_whitespace(question)) > 185 else sql
+    assert marker not in caplog.text
