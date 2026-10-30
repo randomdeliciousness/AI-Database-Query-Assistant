@@ -1170,13 +1170,15 @@ def test_user_pair_limits_use_collapsed_length(tmp_path):
             "q" * 186,
             "SELECT 1 AS x",
             185,
-            "question exceeds the 185 character limit",
+            "Your answer is fine. It wasn't saved as an example because "
+            "the question is longer than 185 characters.",
         ),
         (
             "how many genres",
             _select_literal(733),
             741,
-            "SQL exceeds the 741 character limit",
+            "Your answer is fine. It wasn't saved as an example because "
+            "the generated SQL is longer than 741 characters.",
         ),
     ],
 )
@@ -1195,6 +1197,9 @@ def test_add_user_pair_over_limit_raises_pair_limit_exceeded(
     assert isinstance(excinfo.value, PairLimitExceeded)
     assert excinfo.value.limit == limit
     assert str(excinfo.value) == message
+    assert str(limit) in str(excinfo.value)
+    other = "741" if limit == 185 else "185"
+    assert other not in str(excinfo.value)
 
 
 def test_execute_query_does_not_match_limit_text(tmp_path, monkeypatch):
@@ -1203,7 +1208,10 @@ def test_execute_query_does_not_match_limit_text(tmp_path, monkeypatch):
     assistant.client.scripted_sql = "SELECT 1 AS x"
 
     def raise_plain(*_args, **_kwargs):
-        raise ValueError("question exceeds the 185 character limit")
+        raise ValueError(
+            "Your answer is fine. It wasn't saved as an example because "
+            "the question is longer than 185 characters."
+        )
 
     monkeypatch.setattr(assistant.index, "add_user_pair", raise_plain)
     with pytest.raises(ValueError) as excinfo:
@@ -1280,13 +1288,15 @@ def test_three_max_pairs_estimate_at_most_4668(tmp_path):
         (
             "q" * 186,
             "SELECT 1 AS x",
-            "question exceeds the 185 character limit",
+            "Your answer is fine. It wasn't saved as an example because "
+            "the question is longer than 185 characters.",
             1,
         ),
         (
             "how many genres",
             "SELECT '" + "a" * 733 + "'",
-            "SQL exceeds the 741 character limit",
+            "Your answer is fine. It wasn't saved as an example because "
+            "the generated SQL is longer than 741 characters.",
             "a" * 733,
         ),
     ],
@@ -1297,6 +1307,8 @@ def test_over_limit_success_returns_result_and_notice(
     assistant = _assistant(_chinook(tmp_path))
     before_docs = list(assistant.collection.documents)
     before_sql = [meta.get("sql_query") for meta in assistant.collection.metadatas]
+    if len(collapse_whitespace(question)) <= 185:
+        assert len(collapse_whitespace(sql)) >= 742
     assistant.client.scripted_sql = sql
     with caplog.at_level("WARNING"):
         frame, _similar = assistant.execute_query(question)
@@ -1308,6 +1320,36 @@ def test_over_limit_success_returns_result_and_notice(
     )
     assert frame.attrs["notice"] == notice
     assert notice in caplog.text
-    assert "185" in notice or "741" in notice
+    this_number = "185" if len(collapse_whitespace(question)) > 185 else "741"
+    other_number = "741" if this_number == "185" else "185"
+    assert this_number in notice
+    assert other_number not in notice
     marker = question if len(collapse_whitespace(question)) > 185 else sql
     assert marker not in caplog.text
+
+
+def test_both_over_limit_names_the_question(tmp_path):
+    assistant = _assistant(_chinook(tmp_path))
+    question = "q" * 186
+    sql = _select_literal(733)
+    assert len(collapse_whitespace(sql)) >= 742
+    notice = (
+        "Your answer is fine. It wasn't saved as an example because "
+        "the question is longer than 185 characters."
+    )
+    before = list(assistant.collection.documents)
+    with pytest.raises(PairLimitExceeded) as excinfo:
+        assistant.index.add_user_pair(question, sql, {}, allow_raw_write=True)
+    assert isinstance(excinfo.value, PairLimitExceeded)
+    assert excinfo.value.limit == 185
+    assert str(excinfo.value) == notice
+    assert "741" not in str(excinfo.value)
+    assert "generated SQL" not in str(excinfo.value)
+    assert len(assistant.collection.documents) == len(before)
+
+    assistant.client.scripted_sql = sql
+    frame, _similar = assistant.execute_query(question)
+    assert frame.iloc[0, 0] == "a" * 733
+    assert frame.attrs["notice"] == notice
+    assert "741" not in frame.attrs["notice"]
+    assert assistant.collection.documents == before

@@ -15,6 +15,7 @@ from streamlit.testing.v1 import AppTest
 
 import streamlit_app
 from config import DEFAULT_MODEL_ID
+from retrieval import PairLimitExceeded, collapse_whitespace
 
 REPO = Path(__file__).resolve().parent.parent
 GENRES = "SELECT GenreId, Name FROM Genre ORDER BY GenreId"
@@ -187,3 +188,115 @@ def test_startup_error_shows_only_the_type(app, monkeypatch, capfd, caplog):
     assert "streamlit_app.py" not in err
     assert "Traceback" not in caplog.text
     assert sentinel not in caplog.text
+
+
+_QUESTION_NOTICE = (
+    "Your answer is fine. It wasn't saved as an example because "
+    "the question is longer than 185 characters."
+)
+_SQL_NOTICE = (
+    "Your answer is fine. It wasn't saved as an example because "
+    "the generated SQL is longer than 741 characters."
+)
+
+
+def _over_limit_sql() -> str:
+    """One Genre row. Length is the IN list, so collapsing spaces keeps it over 741."""
+    return "SELECT Name FROM Genre WHERE GenreId IN (" + ",".join(["1"] * 400) + ")"
+
+
+def _spy_on_add_user_pair(index):
+    """Count add_user_pair calls and keep a raised PairLimitExceeded."""
+    bound = index.add_user_pair
+
+    def spy(*args, **kwargs):
+        spy.calls += 1
+        try:
+            return bound(*args, **kwargs)
+        except PairLimitExceeded as exc:
+            spy.exc = exc
+            raise
+
+    spy.calls = 0
+    spy.exc = None
+    index.add_user_pair = spy
+    return spy
+
+
+def _prepare_over_limit(app):
+    """Secrets, first run, one under-limit seed, and a save-path spy.
+
+    Does not submit a question. The caller sets any over-limit SQL, asserts
+    its collapsed length, then submits.
+    """
+    app.secrets["xai"] = {"api_key": "test-not-a-key"}
+    app.run()
+    assert not app.exception
+    fake = FakeXaiClient.instances[-1]
+    assert fake.scripted_sql == GENRES
+    assistant = app.session_state["assistant"]
+    collection = assistant.collection
+    collection.add(
+        documents=["how many genres are listed"],
+        metadatas=[{"sql_query": "SELECT COUNT(*) AS n FROM Genre"}],
+        ids=["user:seed"],
+    )
+    before = len(collection.documents)
+    assert before >= 1
+    spy = _spy_on_add_user_pair(assistant.index)
+    return app, spy, collection, before
+
+
+def _assert_over_limit_widgets(at, notice, number, banned, rows):
+    assert not at.exception
+    assert len(at.error) == 0
+    assert len(at.success) == 1
+    assert len(at.dataframe) == 1
+    assert len(at.warning) == 1
+    warning = at.warning[0].value
+    assert warning == notice
+    assert str(number) in warning
+    for text in banned:
+        assert text not in warning
+    assert len(at.dataframe[0].value) == rows
+
+
+def test_app_over_limit_notice_renders_without_storing(app):
+    at, spy, collection, before = _prepare_over_limit(app)
+    at.text_input[0].input("q" * 186).run()
+    assert spy.calls == 1
+    assert isinstance(spy.exc, PairLimitExceeded)
+    assert spy.exc.limit == 185
+    assert len(collection.documents) == before
+    assert collection.documents == ["how many genres are listed"]
+    _assert_over_limit_widgets(at, _QUESTION_NOTICE, 185, ["741"], 25)
+
+
+def test_app_over_limit_sql_notice_renders_without_storing(app):
+    at, spy, collection, before = _prepare_over_limit(app)
+    question = "how many genres"
+    assert len(collapse_whitespace(question)) <= 185
+    sql = _over_limit_sql()
+    assert len(collapse_whitespace(sql)) >= 742
+    FakeXaiClient.instances[-1].scripted_sql = sql
+    at.text_input[0].input(question).run()
+    assert spy.calls == 1
+    assert isinstance(spy.exc, PairLimitExceeded)
+    assert spy.exc.limit == 741
+    assert len(collection.documents) == before
+    assert collection.documents == ["how many genres are listed"]
+    _assert_over_limit_widgets(at, _SQL_NOTICE, 741, ["185"], 1)
+
+
+def test_app_over_limit_both_names_the_question(app):
+    at, spy, collection, before = _prepare_over_limit(app)
+    sql = _over_limit_sql()
+    assert len(collapse_whitespace(sql)) >= 742
+    FakeXaiClient.instances[-1].scripted_sql = sql
+    at.text_input[0].input("q" * 186).run()
+    assert spy.calls == 1
+    assert isinstance(spy.exc, PairLimitExceeded)
+    assert spy.exc.limit == 185
+    assert len(collection.documents) == before
+    assert collection.documents == ["how many genres are listed"]
+    _assert_over_limit_widgets(at, _QUESTION_NOTICE, 185, ["741", "generated SQL"], 1)

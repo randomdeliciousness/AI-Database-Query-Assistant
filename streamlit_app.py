@@ -180,6 +180,9 @@ def main():
             notice = truncation_notice(results)
             if notice:
                 st.warning(notice, icon="⚠️")
+            pair_notice = results.attrs.get("notice")
+            if pair_notice:
+                st.warning(pair_notice, icon="⚠️")
             st.dataframe(results, use_container_width=True)
 
             fig = create_visualization(results)

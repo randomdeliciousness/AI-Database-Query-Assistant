@@ -962,12 +962,15 @@ class SchemaIndex:
         collapsed_sql = collapse_whitespace(sql)
         if len(collapsed_question) > PAIR_QUESTION_CHARS:
             raise PairLimitExceeded(
-                f"question exceeds the {PAIR_QUESTION_CHARS} character limit",
+                "Your answer is fine. It wasn't saved as an example because "
+                f"the question is longer than {PAIR_QUESTION_CHARS} characters.",
                 PAIR_QUESTION_CHARS,
             )
         if len(collapsed_sql) > PAIR_SQL_CHARS:
             raise PairLimitExceeded(
-                f"SQL exceeds the {PAIR_SQL_CHARS} character limit",
+                "Your answer is fine. It wasn't saved as an example because "
+                "the generated SQL is longer than "
+                f"{PAIR_SQL_CHARS} characters.",
                 PAIR_SQL_CHARS,
             )
         stored = {
