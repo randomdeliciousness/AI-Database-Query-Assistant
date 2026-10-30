@@ -1,0 +1,48 @@
+{
+  "status": "pinned",
+  "note": "Fails closed. Fill sha256 and bytes from an ADQ_MODEL_BOOTSTRAP=1 build log after Review approves and Demo's independent hashes match; never rewritten by a normal build.",
+  "archive_sha256": "913d7300ceae3b2dbc2c50d1de4baacab4be7b9380491c27fab7418616a16ec3",
+  "archive_bytes": 83178821,
+  "files": {
+    "config.json": {
+      "path": "onnx/config.json",
+      "sha256": "b567c7d5a55b636c95186aaf993f9a8920842b7e05a9e703e68b23cab2c3a670",
+      "bytes": 650
+    },
+    "model.onnx": {
+      "path": "onnx/model.onnx",
+      "sha256": "4f148ba8ae9c2c7fbee4af2b132db8d06c6a6545b47fc83bbb98c3d22b8393e6",
+      "bytes": 90387606
+    },
+    "special_tokens_map.json": {
+      "path": "onnx/special_tokens_map.json",
+      "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+      "bytes": 125
+    },
+    "tokenizer.json": {
+      "path": "onnx/tokenizer.json",
+      "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+      "bytes": 711661
+    },
+    "tokenizer_config.json": {
+      "path": "onnx/tokenizer_config.json",
+      "sha256": "7702051bbc4953b94d47fa1d61b42ed4cbb3c71b501a8dd7183a823f8bea1f20",
+      "bytes": 518
+    },
+    "vocab.txt": {
+      "path": "onnx/vocab.txt",
+      "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "bytes": 231508
+    }
+  },
+  "bootstrap_log": [
+    "tarball: onnx.tar.gz sha256=913d7300ceae3b2dbc2c50d1de4baacab4be7b9380491c27fab7418616a16ec3 bytes=83178821",
+    "file: onnx/config.json sha256=b567c7d5a55b636c95186aaf993f9a8920842b7e05a9e703e68b23cab2c3a670 bytes=650",
+    "file: onnx/model.onnx sha256=4f148ba8ae9c2c7fbee4af2b132db8d06c6a6545b47fc83bbb98c3d22b8393e6 bytes=90387606",
+    "file: onnx/special_tokens_map.json sha256=b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3 bytes=125",
+    "file: onnx/tokenizer.json sha256=da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0 bytes=711661",
+    "file: onnx/tokenizer_config.json sha256=7702051bbc4953b94d47fa1d61b42ed4cbb3c71b501a8dd7183a823f8bea1f20 bytes=518",
+    "file: onnx/vocab.txt sha256=07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3 bytes=231508",
+    "bootstrap build: hashes printed; exiting 1 by design"
+  ]
+}

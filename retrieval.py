@@ -55,8 +55,78 @@ _PAIR_CANDIDATES = 10
 _TABLE_CANDIDATES = 5
 
 
+# Every file chromadb's ONNXMiniLM_L6_V2 checks before it would download.
+ONNX_MODEL_FILES = (
+    "config.json",
+    "model.onnx",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.txt",
+)
+# Committed per-file sha256 pins. A placeholder or null entry fails closed.
+MODEL_MANIFEST_PATH = (
+    Path(__file__).resolve().parent / "model_pins" / "all-MiniLM-L6-v2.sha256.json"
+)
+
+
 class OfflineModelMissing(RuntimeError):
-    """The pinned ONNX directory has no model.onnx. Nothing is downloaded."""
+    """A pinned ONNX file is missing or its sha256 is wrong. Nothing is downloaded."""
+
+
+def _load_manifest(manifest_path: Path) -> dict[str, tuple[str, int | None]]:
+    """Return {name: (sha256, bytes)}. Placeholder or null sha256 fails closed.
+
+    Each ``files`` entry is ``{"path", "sha256", "bytes"}``; ``bytes`` is
+    checked whenever it is pinned. ``bootstrap_log`` holds the build log lines
+    the pins were copied from and is not read here.
+    """
+    try:
+        data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise OfflineModelMissing(
+            f"model manifest unreadable: {manifest_path}"
+        ) from exc
+    if data.get("status") != "pinned":
+        raise OfflineModelMissing(f"model manifest is not pinned: {manifest_path}")
+    files = data.get("files") or {}
+    pins = {}
+    for name in ONNX_MODEL_FILES:
+        entry = files.get(name)
+        if not isinstance(entry, dict):
+            raise OfflineModelMissing(f"model manifest has no entry for {name}")
+        sha = entry.get("sha256")
+        if (
+            not isinstance(sha, str)
+            or len(sha) != 64
+            or any(c not in "0123456789abcdefABCDEF" for c in sha)
+        ):
+            raise OfflineModelMissing(f"model manifest has no sha256 for {name}")
+        size = entry.get("bytes")
+        if size is not None and (
+            isinstance(size, bool) or not isinstance(size, int) or size < 0
+        ):
+            raise OfflineModelMissing(f"model manifest has a bad byte count for {name}")
+        pins[name] = (sha.lower(), size)
+    return pins
+
+
+def verify_model_dir(root: Path, manifest_path: Path | None = None) -> None:
+    """Raise OfflineModelMissing unless every file exists and matches its pin."""
+    pins = _load_manifest(manifest_path or MODEL_MANIFEST_PATH)
+    for name in ONNX_MODEL_FILES:
+        path = Path(root) / name
+        if not path.is_file():
+            raise OfflineModelMissing(f"{name} is not in {root}")
+        expected_sha, expected_bytes = pins[name]
+        if expected_bytes is not None and path.stat().st_size != expected_bytes:
+            raise OfflineModelMissing(f"{name} byte count mismatch in {root}")
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_sha:
+            raise OfflineModelMissing(f"{name} sha256 mismatch in {root}")
 
 
 @dataclass(frozen=True)
@@ -343,19 +413,21 @@ def _is_published_clinic(db_path: str) -> bool:
     )
 
 
-def load_embedding_function(model_dir: str | None = None):
+def load_embedding_function(
+    model_dir: str | None = None, manifest_path: Path | None = None
+):
     """ONNX MiniLM pointed at a local directory. Never downloads.
 
     ``model_dir`` defaults to ADQ_ONNX_MODEL_DIR. The directory must already
-    contain model.onnx. The class download method is replaced so a missing
-    file cannot fall through to the network.
+    contain every file in ONNX_MODEL_FILES, each matching the committed
+    manifest. The class download methods are replaced so nothing can fall
+    through to the network.
     """
     resolved = model_dir if model_dir is not None else load_onnx_model_dir()
     if resolved is None or not str(resolved).strip():
         raise OfflineModelMissing("ADQ_ONNX_MODEL_DIR is unset")
     root = Path(resolved)
-    if not (root / "model.onnx").is_file():
-        raise OfflineModelMissing(f"model.onnx is not in {root}")
+    verify_model_dir(root, manifest_path)
 
     from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
         ONNXMiniLM_L6_V2,

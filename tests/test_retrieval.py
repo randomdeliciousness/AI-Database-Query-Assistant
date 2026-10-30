@@ -26,6 +26,8 @@ from enhanced_assistant import (
 from retrieval import (
     CUTOFF_GRID,
     IMAGE_ONNX_DIR,
+    MODEL_MANIFEST_PATH,
+    ONNX_MODEL_FILES,
     TABLE_K_GRID,
     OfflineModelMissing,
     SchemaIndex,
@@ -42,6 +44,7 @@ from retrieval import (
     schema_ddl_hash,
     score_rankings,
     select_params,
+    verify_model_dir,
     write_dev_report,
 )
 from spend_meter import SpendMeter, SpendRefused
@@ -841,25 +844,144 @@ def test_chroma_path_comes_from_env(monkeypatch, tmp_path):
     assert assistant.chroma_client.settings.anonymized_telemetry is False
 
 
-def test_embedding_is_offline(tmp_path):
-    missing = tmp_path / "absent-model"
-    missing.mkdir()
+def _fake_model_dir(tmp_path):
+    root = tmp_path / "model"
+    root.mkdir()
+    pins = {}
+    for name in ONNX_MODEL_FILES:
+        data = f"fake {name}".encode()
+        (root / name).write_bytes(data)
+        pins[name] = {
+            "path": f"onnx/{name}",
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "bytes": len(data),
+        }
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(manifest, pins)
+    return root, manifest
+
+
+def _write_manifest(manifest, pins):
+    manifest.write_text(
+        json.dumps({"status": "pinned", "files": pins, "bootstrap_log": []}),
+        encoding="utf-8",
+    )
+
+
+def _pins(manifest):
+    return json.loads(manifest.read_text(encoding="utf-8"))["files"]
+
+
+def test_model_files_list_matches_chromadb():
+    import inspect
+
+    from chromadb.utils.embedding_functions import onnx_mini_lm_l6_v2
+
+    source = inspect.getsource(onnx_mini_lm_l6_v2)
+    for name in ONNX_MODEL_FILES:
+        assert f'"{name}"' in source, name
+
+
+def test_model_dir_present_and_matching(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    verify_model_dir(root, manifest)
+
+
+def test_model_dir_missing_file_raises(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    (root / "tokenizer.json").unlink()
     with pytest.raises(OfflineModelMissing):
-        load_embedding_function(str(missing))
-    configured = os.environ.get("ADQ_ONNX_MODEL_DIR")
-    if configured:
-        embedding = load_embedding_function(configured)
-        vectors = embedding(["offline probe"])
-        assert len(list(vectors[0])) == 384
-        return
-    image = Path(IMAGE_ONNX_DIR)
-    if (image / "model.onnx").is_file():
-        embedding = load_embedding_function(str(image))
-        vectors = embedding(["offline probe"])
-        assert len(list(vectors[0])) == 384
-        return
+        verify_model_dir(root, manifest)
+    with pytest.raises(OfflineModelMissing):
+        load_embedding_function(str(root), manifest)
+
+
+def test_model_dir_wrong_hash_raises(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    (root / "model.onnx").write_bytes(b"tampered")
+    with pytest.raises(OfflineModelMissing):
+        verify_model_dir(root, manifest)
+    with pytest.raises(OfflineModelMissing):
+        load_embedding_function(str(root), manifest)
+
+
+def test_model_dir_wrong_byte_count_raises(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    pins = _pins(manifest)
+    pins["vocab.txt"]["bytes"] += 1
+    _write_manifest(manifest, pins)
+    with pytest.raises(OfflineModelMissing):
+        verify_model_dir(root, manifest)
+
+
+def test_model_dir_unpinned_byte_count_checks_sha_only(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    pins = _pins(manifest)
+    for entry in pins.values():
+        entry["bytes"] = None
+    _write_manifest(manifest, pins)
+    verify_model_dir(root, manifest)
+
+
+def test_manifest_null_sha_fails_closed(tmp_path):
+    root, manifest = _fake_model_dir(tmp_path)
+    pins = _pins(manifest)
+    pins["model.onnx"]["sha256"] = None
+    _write_manifest(manifest, pins)
+    with pytest.raises(OfflineModelMissing):
+        verify_model_dir(root, manifest)
+
+
+def test_committed_manifest_shape():
+    data = json.loads(MODEL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert set(data["files"]) == set(ONNX_MODEL_FILES)
+    for name, entry in data["files"].items():
+        assert set(entry) == {"path", "sha256", "bytes"}, name
+        assert entry["path"] == f"onnx/{name}"
+    assert isinstance(data["bootstrap_log"], list)
+    if data["status"] != "pinned":
+        assert data["bootstrap_log"] == []
+        assert all(e["sha256"] is None for e in data["files"].values())
+        assert all(e["bytes"] is None for e in data["files"].values())
+
+
+def test_placeholder_manifest_fails_closed(tmp_path):
+    root, _ = _fake_model_dir(tmp_path)
+    placeholder = json.loads(MODEL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    placeholder["status"] = "placeholder"
+    placeholder["bootstrap_log"] = []
+    for entry in placeholder["files"].values():
+        entry["sha256"] = None
+        entry["bytes"] = None
+    manifest = tmp_path / "placeholder_manifest.json"
+    manifest.write_text(json.dumps(placeholder), encoding="utf-8")
+    with pytest.raises(OfflineModelMissing):
+        verify_model_dir(root, manifest)
+
+
+def test_embedding_unset_dir_raises(monkeypatch):
+    monkeypatch.delenv("ADQ_ONNX_MODEL_DIR", raising=False)
     with pytest.raises(OfflineModelMissing):
         load_embedding_function(None)
+
+
+@pytest.mark.skipif(
+    not (Path(IMAGE_ONNX_DIR) / "model.onnx").is_file(),
+    reason="in-image only: needs the baked ONNX model (run with --network none)",
+)
+def test_in_image_real_embed_offline(monkeypatch):
+    from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
+        ONNXMiniLM_L6_V2,
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        ONNXMiniLM_L6_V2, "_download", lambda *a, **k: calls.append(a), raising=False
+    )
+    embedding = load_embedding_function(IMAGE_ONNX_DIR)
+    vectors = embedding(["offline probe"])
+    assert len(list(vectors[0])) == 384
+    assert not calls
 
 
 @pytest.mark.repo_files

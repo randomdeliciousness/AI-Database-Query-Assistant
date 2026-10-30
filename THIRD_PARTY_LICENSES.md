@@ -167,11 +167,11 @@ Installed in the test image and in CI only; not in the runtime image.
 
 ## Pinned embedding archive
 
-Not a pip package. The image build downloads this archive in one `RUN`, checks the sha256 and the byte size, extracts it, and deletes the tarball. The archive LICENSE file was not in this checkout, so the date below is the unread-template date and the SPDX cell is the expected license.
+Not a pip package. The image build downloads this archive in one `RUN`, checks the sha256 and the byte size, extracts it, and deletes the tarball. The archive (listed 2026-10-29: config.json, model.onnx, special_tokens_map.json, tokenizer.json, tokenizer_config.json, vocab.txt) has no LICENSE file, so the image copies the committed Apache-2.0 text `licenses/all-MiniLM-L6-v2.LICENSE` (sha256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30, copied verbatim from `googleapis_common_protos-1.76.0.dist-info/licenses/LICENSE` in the googleapis-common-protos 1.76.0 wheel) into the model directory, with the license taken from the upstream model card https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2. Per-file path, sha256 and byte-count pins, plus the bootstrap log lines they came from, live in `model_pins/all-MiniLM-L6-v2.sha256.json`.
 
 | name | version | SPDX | URL | date |
 |---|---|---|---|---|
-| all-MiniLM-L6-v2 ONNX (Chroma default embedding, archive sha256 913d7300ceae3b2dbc2c50d1de4baacab4be7b9380491c27fab7418616a16ec3) | archive | Apache-2.0 | https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz | PENDING in-image check |
+| all-MiniLM-L6-v2 ONNX (Chroma default embedding, archive sha256 913d7300ceae3b2dbc2c50d1de4baacab4be7b9380491c27fab7418616a16ec3) | archive | Apache-2.0 (upstream card; LICENSE not in archive; LICENSE sha256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30, text from googleapis-common-protos 1.76.0 wheel) | https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz | 2026-10-29 |
 
 Expected size: 83178821 bytes.
 
