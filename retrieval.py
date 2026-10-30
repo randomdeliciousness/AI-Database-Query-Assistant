@@ -420,8 +420,8 @@ def load_embedding_function(
 
     ``model_dir`` defaults to ADQ_ONNX_MODEL_DIR. The directory must already
     contain every file in ONNX_MODEL_FILES, each matching the committed
-    manifest. The class download methods are replaced so nothing can fall
-    through to the network.
+    manifest. The class's network fetch (_download) is replaced so nothing
+    can fall through to the network.
     """
     resolved = model_dir if model_dir is not None else load_onnx_model_dir()
     if resolved is None or not str(resolved).strip():
@@ -443,9 +443,9 @@ def load_embedding_function(
     ONNXMiniLM_L6_V2.DOWNLOAD_PATH = root
     if hasattr(ONNXMiniLM_L6_V2, "EXTRACTED_FOLDER_NAME"):
         ONNXMiniLM_L6_V2.EXTRACTED_FOLDER_NAME = ""
-    for name, value in list(vars(ONNXMiniLM_L6_V2).items()):
-        if "download" in name.lower() and callable(value):
-            setattr(ONNXMiniLM_L6_V2, name, _refuse_download)
+    # Only the network fetch is replaced. _download_model_if_not_exists stays
+    # real: chromadb calls it on every embed, and it finds the verified files.
+    ONNXMiniLM_L6_V2._download = _refuse_download
     return ONNXMiniLM_L6_V2()
 
 

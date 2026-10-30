@@ -959,6 +959,56 @@ def test_placeholder_manifest_fails_closed(tmp_path):
         verify_model_dir(root, manifest)
 
 
+def _isolate_onnx_class(monkeypatch):
+    from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
+        ONNXMiniLM_L6_V2,
+    )
+
+    for attr in ("DOWNLOAD_PATH", "EXTRACTED_FOLDER_NAME", "_download"):
+        monkeypatch.setattr(ONNXMiniLM_L6_V2, attr, getattr(ONNXMiniLM_L6_V2, attr))
+    return ONNXMiniLM_L6_V2
+
+
+def test_embed_with_verified_files_never_downloads(tmp_path, monkeypatch):
+    import numpy as np
+
+    cls = _isolate_onnx_class(monkeypatch)
+    root, manifest = _fake_model_dir(tmp_path)
+    monkeypatch.setattr(
+        cls,
+        "_forward",
+        lambda self, docs, batch_size=32: np.ones((len(docs), 384), np.float32),
+    )
+    embedding = load_embedding_function(str(root), manifest)
+    calls = []
+    refuse = cls._download
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return refuse(*args, **kwargs)
+
+    monkeypatch.setattr(cls, "_download", counting)
+    vectors = embedding(["offline probe"])
+    assert len(list(vectors[0])) == 384
+    assert calls == []
+
+
+def test_embed_with_missing_file_raises_without_fetch(tmp_path, monkeypatch):
+    _isolate_onnx_class(monkeypatch)
+    root, manifest = _fake_model_dir(tmp_path)
+    (root / "vocab.txt").unlink()
+    with pytest.raises(OfflineModelMissing):
+        load_embedding_function(str(root), manifest)
+
+    root2 = tmp_path / "second"
+    root2.mkdir()
+    root2, manifest2 = _fake_model_dir(root2)
+    embedding = load_embedding_function(str(root2), manifest2)
+    (root2 / "model.onnx").unlink()
+    with pytest.raises(OfflineModelMissing, match="refusing to download"):
+        embedding(["offline probe"])
+
+
 def test_embedding_unset_dir_raises(monkeypatch):
     monkeypatch.delenv("ADQ_ONNX_MODEL_DIR", raising=False)
     with pytest.raises(OfflineModelMissing):
